@@ -1,65 +1,56 @@
-// index.js – Bullish or Bust! backend
 require('dotenv').config();
 const express = require('express');
-const cors = require('cors');
-const fetch = require('node-fetch');
-
+const axios = require('axios');
 const app = express();
-const port = process.env.PORT || 3000;
+const cors = require('cors');
 
 app.use(cors());
 app.use(express.json());
 
-const ALPACA_URL = 'https://paper-api.alpaca.markets/v2';
-const HEADERS = {
-  'APCA-API-KEY-ID': process.env.ALPACA_KEY,
-  'APCA-API-SECRET-KEY': process.env.ALPACA_SECRET,
-  'Content-Type': 'application/json'
-};
+const ALPACA_API_KEY = process.env.ALPACA_API_KEY;
+const ALPACA_SECRET_KEY = process.env.ALPACA_SECRET_KEY;
+const ALPACA_BASE_URL = 'https://paper-api.alpaca.markets/v2';
 
-// Buy endpoint
+app.get('/', (req, res) => {
+  res.send('🚀 Bullish or Bust backend is live!');
+});
+
+// PLACE BUY ORDER
 app.post('/buy', async (req, res) => {
   const { symbol, qty, price } = req.body;
 
-  if (!symbol || !qty || !price) {
-    return res.status(400).json({ error: 'Missing symbol, qty, or price' });
-  }
-
-  const order = {
-    symbol,
-    qty,
-    side: 'buy',
-    type: 'limit',
-    time_in_force: 'day',
-    limit_price: (price * 1.005).toFixed(2),
-  };
-
   try {
-    const response = await fetch(`${ALPACA_URL}/orders`, {
-      method: 'POST',
-      headers: HEADERS,
-      body: JSON.stringify(order)
-    });
+    const response = await axios.post(
+      `${ALPACA_BASE_URL}/orders`,
+      {
+        symbol,
+        qty,
+        side: 'buy',
+        type: 'limit',
+        time_in_force: 'day',
+        limit_price: price,
+      },
+      {
+        headers: {
+          'APCA-API-KEY-ID': ALPACA_API_KEY,
+          'APCA-API-SECRET-KEY': ALPACA_SECRET_KEY,
+        },
+      }
+    );
 
-    const data = await response.json();
-    if (!response.ok) {
-      console.error('Alpaca error:', data);
-      return res.status(500).json({ error: data.message || 'Alpaca error' });
-    }
-
-    console.log('✅ Alpaca order placed:', data);
-    res.json({ success: true, data });
-  } catch (err) {
-    console.error('❌ Error placing order:', err);
-    res.status(500).json({ error: err.message });
+    res.json(response.data);
+  } catch (error) {
+    console.error(error.response?.data || error.message);
+    res.status(500).json({ error: 'Failed to place buy order' });
   }
 });
 
-// Health check
-app.get('/', (req, res) => {
-  res.send('Bullish or Bust backend is running');
+// HEALTH CHECK
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
 });
 
-app.listen(port, () => {
-  console.log(`🚀 Backend listening on port ${port}`);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Backend running on port ${PORT}`);
 });
