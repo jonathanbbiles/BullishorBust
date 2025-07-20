@@ -1,175 +1,133 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Switch, TouchableOpacity, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  ScrollView,
+  ActivityIndicator,
+  TouchableOpacity,
+  useColorScheme,
+  RefreshControl,
+} from 'react-native';
+import axios from 'axios';
 
-const BACKEND_URL = 'https://bullish-or-bust-backend.onrender.com';
+const backendUrl = 'https://bullish-or-bust-backend.onrender.com';
 
-export default function App() {
-  const [cryptoData, setCryptoData] = useState([]);
-  const [autoTradeEnabled, setAutoTradeEnabled] = useState(false);
+const App = () => {
+  const [assets, setAssets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const isDarkMode = useColorScheme() === 'dark';
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get(`${backendUrl}/assets`);
+      if (Array.isArray(response.data)) {
+        const sortedAssets = response.data
+          .map(asset => {
+            const macdBullish = asset.macd > asset.signal;
+            const rsiRising = asset.rsi > asset.prevRsi && asset.rsi >= 36;
+            const trend = asset.trend || 'flat';
+            const entryReady = macdBullish && rsiRising && trend === 'up';
+            const watchlist = macdBullish && !entryReady;
+
+            let trendSymbol = '🟰';
+            if (trend === 'up') trendSymbol = '⬆️';
+            else if (trend === 'down') trendSymbol = '⬇️';
+
+            return {
+              ...asset,
+              entryReady,
+              watchlist,
+              trendSymbol,
+              sortOrder: entryReady ? 0 : watchlist ? 1 : 2,
+            };
+          })
+          .sort((a, b) => a.sortOrder - b.sortOrder);
+        setAssets(sortedAssets);
+      } else {
+        setAssets([]);
+      }
+    } catch (error) {
+      console.error('Error fetching assets:', error.message);
+      setAssets([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
-    fetchCryptoData();
+    fetchData();
   }, []);
 
-  const fetchCryptoData = async () => {
-    try {
-      const response = await fetch(`${BACKEND_URL}/crypto`);
-      const data = await response.json();
-      setCryptoData(data);
-    } catch (error) {
-      console.error('Error fetching crypto data:', error);
-    }
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchData();
   };
 
-  const toggleAutoTrade = async () => {
-    const newStatus = !autoTradeEnabled;
-    setAutoTradeEnabled(newStatus);
-    try {
-      const response = await fetch(`${BACKEND_URL}/toggle-auto-trade`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: newStatus }),
-      });
-      const result = await response.json();
-      Alert.alert('Auto Trade', result.message || 'Toggled');
-    } catch (error) {
-      console.error('Failed to toggle auto-trade:', error);
-    }
+  const getBorderColor = (asset) => {
+    if (asset.entryReady) return 'green';
+    if (asset.watchlist) return 'orange';
+    return 'red';
   };
 
-  const manualBuy = async (symbol) => {
-    try {
-      const response = await fetch(`${BACKEND_URL}/buy`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol }),
-      });
-      const result = await response.json();
-      Alert.alert('Buy Executed', JSON.stringify(result, null, 2));
-    } catch (error) {
-      Alert.alert('Error', 'Failed to send buy order.');
-    }
+  const getTag = (asset) => {
+    if (asset.entryReady) return '✅ ENTRY READY';
+    if (asset.watchlist) return '🕓 WATCHLIST';
+    return '';
   };
 
-  const renderCard = (asset) => {
-    const borderColor = asset.entryReady ? 'green' : asset.watchlist ? 'orange' : 'red';
-    const trendSymbol = asset.trend === 'up' ? '⬆️' : asset.trend === 'down' ? '⬇️' : '🟰';
-
-    return (
-      <View key={asset.symbol} style={[styles.card, { borderColor }]}>
-        <Text style={styles.symbol}>{asset.symbol}</Text>
-        <Text style={styles.signal}>
-          MACD: {asset.macdSignal ? '📈 Bullish' : '📉 Bearish'}
-        </Text>
-        <Text style={styles.signal}>RSI: {asset.rsi.toFixed(2)}</Text>
-        <Text style={styles.trend}>Trend: {trendSymbol}</Text>
-        {asset.entryReady && <Text style={styles.entryReady}>✅ ENTRY READY</Text>}
-        {asset.watchlist && !asset.entryReady && <Text style={styles.watchlist}>🕓 Watchlist</Text>}
-        <TouchableOpacity style={styles.buyButton} onPress={() => manualBuy(asset.symbol)}>
-          <Text style={styles.buyButtonText}>Buy</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  };
+  const backgroundColor = isDarkMode ? '#000' : '#fff';
+  const textColor = isDarkMode ? '#fff' : '#000';
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Switch value={autoTradeEnabled} onValueChange={toggleAutoTrade} />
-        <Text style={styles.title}>🎭 Bullish or Bust!</Text>
-        <TouchableOpacity onPress={fetchCryptoData}>
-          <Text style={styles.refresh}>⟳</Text>
-        </TouchableOpacity>
+    <View style={{ flex: 1, backgroundColor, paddingTop: 50 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 10 }}>
+        <Text style={{ fontSize: 24, fontWeight: 'bold', color: 'cyan' }}>🎭 Bullish or Bust!</Text>
       </View>
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
-        {cryptoData.length === 0 ? (
-          <Text style={styles.status}>Loading assets...</Text>
-        ) : (
-          cryptoData
-            .sort((a, b) => {
-              const aScore = a.entryReady ? 2 : a.watchlist ? 1 : 0;
-              const bScore = b.entryReady ? 2 : b.watchlist ? 1 : 0;
-              return bScore - aScore;
-            })
-            .map(renderCard)
-        )}
-      </ScrollView>
+
+      {loading ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="cyan" />
+          <Text style={{ marginTop: 10, color: textColor }}>Loading assets...</Text>
+        </View>
+      ) : (
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: 100 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        >
+          {assets.map((asset, index) => (
+            <View
+              key={index}
+              style={{
+                borderWidth: 2,
+                borderColor: getBorderColor(asset),
+                margin: 10,
+                padding: 15,
+                borderRadius: 10,
+                backgroundColor: isDarkMode ? '#222' : '#f0f0f0',
+              }}
+            >
+              <Text style={{ fontSize: 20, fontWeight: 'bold', color: textColor }}>
+                {asset.symbol}
+              </Text>
+              <Text style={{ color: textColor }}>{asset.trendSymbol} Trend</Text>
+              <Text style={{ color: textColor }}>RSI: {asset.rsi.toFixed(2)}</Text>
+              <Text style={{ color: textColor }}>
+                MACD: {asset.macd.toFixed(4)} / Signal: {asset.signal.toFixed(4)}
+              </Text>
+              {getTag(asset) !== '' && (
+                <Text style={{ marginTop: 5, fontWeight: 'bold', color: getBorderColor(asset) }}>
+                  {getTag(asset)}
+                </Text>
+              )}
+            </View>
+          ))}
+        </ScrollView>
+      )}
     </View>
   );
-}
+};
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#111',
-    paddingTop: 40,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 15,
-    marginBottom: 10,
-  },
-  title: {
-    fontSize: 24,
-    color: '#00ffcc',
-    fontWeight: 'bold',
-  },
-  refresh: {
-    fontSize: 24,
-    color: '#fff',
-  },
-  scrollContainer: {
-    paddingHorizontal: 10,
-    paddingBottom: 50,
-  },
-  status: {
-    color: '#fff',
-    textAlign: 'center',
-    marginTop: 20,
-  },
-  card: {
-    borderWidth: 2,
-    borderRadius: 8,
-    padding: 15,
-    marginVertical: 8,
-    backgroundColor: '#222',
-  },
-  symbol: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  signal: {
-    fontSize: 16,
-    color: '#ddd',
-  },
-  trend: {
-    fontSize: 16,
-    color: '#bbb',
-    marginBottom: 5,
-  },
-  entryReady: {
-    fontSize: 16,
-    color: 'lime',
-    fontWeight: 'bold',
-  },
-  watchlist: {
-    fontSize: 16,
-    color: 'orange',
-    fontWeight: 'bold',
-  },
-  buyButton: {
-    marginTop: 8,
-    backgroundColor: '#00ffcc',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 5,
-    alignSelf: 'flex-start',
-  },
-  buyButtonText: {
-    color: '#000',
-    fontWeight: 'bold',
-  },
-});
+export default App;
