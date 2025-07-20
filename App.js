@@ -152,10 +152,15 @@ export default function App() {
 
           const macdBullish = macd > signal;
           const rsiRising = rsi > prevRsi;
-          const rsiOK = rsi >= 30;
+          const rsiBelow70 = rsi < 70;
           const trendOK = trend === '⬆️' || trend === '🟰';
+          const last5 = closes.slice(-5);
+          const volRange = Math.max(...last5) - Math.min(...last5);
+          const lowVol = volRange / last5.at(-1) < 0.02;
+          const underBreakout = asset.symbol !== 'DOGE' || price < 0.255;
 
-          const entryReady = macdBullish && rsiRising && rsiOK && trendOK;
+          const entryReady =
+            macdBullish && rsiRising && rsiBelow70 && trendOK && lowVol && underBreakout;
           const watchlist = macdBullish && !entryReady;
 
           if (entryReady && autoTrade) {
