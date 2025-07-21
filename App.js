@@ -120,66 +120,137 @@ export default function App() {
     }
   };
 
-  const loadAssets = async () => {
+  // Helper to fetch active crypto assets from Alpaca
+  const fetchAlpacaAssets = async () => {
+    const res = await fetch(
+      `${ALPACA_BASE_URL}/assets?status=active&asset_class=crypto`,
+      { headers: HEADERS }
+    );
+    return res.json();
+  };
+
+  // Helper to fetch snapshot data for a symbol
+  const fetchSnapshot = async (symbol) => {
     try {
       const res = await fetch(
-        `${ALPACA_BASE_URL}/assets?status=active&asset_class=crypto`,
+        `${DATA_BASE_URL}/snapshots?symbols=${symbol}`,
         { headers: HEADERS }
       );
-      const assets = await res.json();
-      const tradables = assets.filter(a => a.class === 'crypto' && a.tradable);
-      const symbols = tradables.map(a => a.symbol).join(',');
+      const data = await res.json();
+      return data?.[symbol] || null;
+    } catch (err) {
+      console.error(`fetchSnapshot failed for ${symbol}:`, err);
+      return null;
+    }
+  };
 
-      const snapRes = await fetch(
-        `${DATA_BASE_URL}/snapshots?symbols=${symbols}`,
+  // Helper to fetch the last 30 minutes of bars for a symbol
+  const fetchBars = async (symbol) => {
+    try {
+      const res = await fetch(
+        `${DATA_BASE_URL}/bars?symbols=${symbol}&timeframe=15Min&limit=30`,
         { headers: HEADERS }
       );
-      const snapData = await snapRes.json();
+      const json = await res.json();
+      const bars = json?.[symbol];
+      return Array.isArray(bars) ? bars : [];
+    } catch (err) {
+      console.error(`fetchBars error for ${symbol}:`, err);
+      return [];
+    }
+  };
 
-      const ranked = await Promise.all(
-        tradables.map(async a => {
-          let bar = snapData[a.symbol]?.latestBar || null;
+  const FALLBACK_TOKENS = ['BTC/USD', 'ETH/USD', 'DOGE/USD', 'SOL/USD', 'AVAX/USD', 'LTC/USD', 'BCH/USD', 'MATIC/USD', 'ADA/USD', 'SHIB/USD'];
 
-          if (!bar) {
-            try {
-              const barsRes = await fetch(
-                `${DATA_BASE_URL}/bars?symbols=${a.symbol}&timeframe=15Min&limit=1`,
-                { headers: HEADERS }
-              );
-              const barsData = await barsRes.json();
-              bar = barsData[a.symbol]?.[0] || null;
-            } catch {
-              bar = null;
-            }
+  const loadAssets = async () => {
+    try {
+      const alpacaAssets = await fetchAlpacaAssets();
+      const tradables = alpacaAssets
+        .filter(a => a.symbol.endsWith('/USD') && a.status === 'active' && a.tradable)
+        .map(a => a.symbol.toUpperCase());
+
+      const seen = new Set();
+      const assetVols = [];
+
+      for (const symbol of tradables) {
+        if (seen.has(symbol)) continue;
+
+        let snapshot = await fetchSnapshot(symbol);
+        let vol = await calcVolatility(symbol, snapshot);
+
+        if (vol > 0 && isFinite(vol)) {
+          assetVols.push({ symbol, vol });
+          seen.add(symbol);
+          console.log(`✅ ${symbol} – volatility = ${vol.toFixed(4)}`);
+        } else {
+          console.log(`⛔ SKIP ${symbol} – invalid or zero volatility from snapshot`);
+
+          const fallbackBars = await fetchBars(symbol);
+          vol = await calcVolatility(symbol, null, fallbackBars);
+
+          if (vol > 0 && isFinite(vol)) {
+            assetVols.push({ symbol, vol });
+            seen.add(symbol);
+            console.log(`🛟 Used fallback for ${symbol} – volatility = ${vol.toFixed(4)}`);
+          } else {
+            console.log(`❌ SKIP ${symbol} – no valid bar data`);
           }
+        }
 
-          if (!bar || bar.h == null || bar.l == null || bar.c == null) {
-            console.log('Skipping asset due to missing bar data:', a.symbol);
-            return null;
-          }
-
-          const volume = bar.v || 0;
-          const volat = (bar.h - bar.l) / bar.c;
-          if (!volume || !isFinite(volat)) {
-            console.log('Skipping asset due to invalid data:', a.symbol);
-            return null;
-          }
-
-          return { name: a.name, symbol: a.symbol, vol: volume, volat };
-        })
-      );
-
-      const valid = ranked.filter(Boolean).sort((a, b) => b.volat - a.volat);
-
-      if (valid.length < 10) {
-        Alert.alert('Data Issue', `Only ${valid.length} assets have valid volatility`);
+        if (assetVols.length >= 20) break;
       }
 
-      setTracked(valid.slice(0, 20));
-      setAssetError(null);
+      for (const fallback of FALLBACK_TOKENS) {
+        if (assetVols.length >= 10) break;
+        if (seen.has(fallback) || !tradables.includes(fallback)) continue;
+
+        const snapshot = await fetchSnapshot(fallback);
+        let vol = await calcVolatility(fallback, snapshot);
+
+        if (vol > 0 && isFinite(vol)) {
+          assetVols.push({ symbol: fallback, vol });
+          seen.add(fallback);
+          console.log(`🧱 Fallback token ${fallback} – volatility = ${vol.toFixed(4)}`);
+        }
+      }
+
+      if (assetVols.length < 1) {
+        Alert.alert('Data Issue\nNo assets have valid volatility');
+      }
+
+      assetVols.sort((a, b) => b.vol - a.vol);
+      const final = assetVols.slice(0, 20).map(a => a.symbol);
+      console.log(`🎯 Final Tracked:`, final);
+      setTracked(final);
     } catch (err) {
-      console.error('asset load failed', err);
-      setAssetError('Unable to load assets from Alpaca');
+      console.error('loadAssets failed:', err);
+    }
+  };
+
+  const calcVolatility = async (symbol, snapshot, fallbackBars = null) => {
+    try {
+      let high, low, close;
+
+      if (snapshot?.dailyBar) {
+        const bar = snapshot.dailyBar;
+        high = bar.h;
+        low = bar.l;
+        close = bar.c;
+      } else if (fallbackBars && fallbackBars.length >= 2) {
+        const sorted = fallbackBars.sort((a, b) => b.t - a.t);
+        high = Math.max(...sorted.map(b => b.h));
+        low = Math.min(...sorted.map(b => b.l));
+        close = sorted[0].c;
+      } else {
+        return 0;
+      }
+
+      if (!high || !low || !close || close === 0) return 0;
+
+      return (high - low) / close;
+    } catch (err) {
+      console.error(`calcVolatility error for ${symbol}:`, err);
+      return 0;
     }
   };
 
