@@ -128,10 +128,29 @@ export default function App() {
         Alert.alert('✅ Buy Success', `Order placed for ${symbol} at $${buyPrice}`);
         console.log('✅ Order success:', buyData);
 
+        // check current position before placing a sell order
+        const posRes = await fetch(`${ALPACA_BASE_URL}/positions/${symbol}`, { headers: HEADERS });
+        let sellQty = qty;
+        if (posRes.ok) {
+          const posData = await posRes.json();
+          const available = Math.floor(parseFloat(posData.qty_available) * 1e6) / 1e6;
+          if (!available || available <= 0) {
+            console.log(`No available balance for ${symbol}, skipping sell.`);
+            return;
+          }
+          if (sellQty > available) {
+            console.log(`Adjusting sell qty from ${sellQty} to available ${available}`);
+            sellQty = available;
+          }
+        } else {
+          console.log(`No available balance for ${symbol}, skipping sell.`);
+          return;
+        }
+
         const sellPrice = (parseFloat(buyPrice) * 1.005).toFixed(2); // 0.5% profit target
         const sellOrder = {
           symbol,
-          qty,
+          qty: parseFloat(sellQty.toFixed(6)),
           side: 'sell',
           type: 'limit',
           time_in_force: 'gtc',
