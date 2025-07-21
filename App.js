@@ -75,6 +75,7 @@ export default function App() {
   };
 
   const MIN_ORDER_COST = 10;
+  const TRADE_FRACTION = 0.1; // 10% of available cash
 
   const fetchAccountCash = async () => {
     try {
@@ -86,23 +87,26 @@ export default function App() {
     }
   };
 
-  const placeOrder = async (symbol, price) => {
+  const placeOrder = async (symbol, price, isAuto = false) => {
     try {
       const cash = await fetchAccountCash();
-      if (cash < MIN_ORDER_COST) {
-        Alert.alert('Buy Skipped: Available cash is below $10 minimum.');
+      const tradeDollars = cash * TRADE_FRACTION;
+      if (tradeDollars < MIN_ORDER_COST) {
+        const msg = isAuto
+          ? 'Skipped auto-buy: Trade size <$10.'
+          : 'Buy Skipped: Alpaca requires $10 minimum per trade.';
+        isAuto ? console.log(msg) : Alert.alert(msg);
         return;
       }
 
-      let qty = 1;
-      if (cash < price) {
-        qty = parseFloat((cash / price).toFixed(6));
-      }
-
-      const buyPrice = (price * 1.005).toFixed(2);
-      const orderCost = qty * parseFloat(buyPrice);
+      const buyPrice = parseFloat((price * 1.005).toFixed(2));
+      const qty = parseFloat((tradeDollars / buyPrice).toFixed(6));
+      const orderCost = qty * buyPrice;
       if (orderCost < MIN_ORDER_COST) {
-        Alert.alert('Buy Skipped: Order must be at least $10.');
+        const msg = isAuto
+          ? 'Skipped auto-buy: Trade size <$10.'
+          : 'Buy Skipped: Alpaca requires $10 minimum per trade.';
+        isAuto ? console.log(msg) : Alert.alert(msg);
         return;
       }
 
@@ -124,7 +128,7 @@ export default function App() {
         Alert.alert('✅ Buy Success', `Order placed for ${symbol} at $${buyPrice}`);
         console.log('✅ Order success:', buyData);
 
-        const sellPrice = (parseFloat(buyPrice) * 1.0025).toFixed(2);
+        const sellPrice = (parseFloat(buyPrice) * 1.005).toFixed(2); // 0.5% profit target
         const sellOrder = {
           symbol,
           qty,
@@ -221,17 +225,7 @@ export default function App() {
           const watchlist = macdBullish && !entryReady;
 
           if (entryReady && autoTrade) {
-            let qty = 1;
-            if (cash < price) {
-              qty = parseFloat((cash / price).toFixed(6));
-            }
-            const buyPrice = price * 1.005;
-            const orderCost = qty * buyPrice;
-            if (cash >= MIN_ORDER_COST && orderCost >= MIN_ORDER_COST) {
-              await placeOrder(asset.symbol, price);
-            } else {
-              console.log(`Auto-buy skipped for ${asset.symbol}: order under $${MIN_ORDER_COST}`);
-            }
+            await placeOrder(asset.symbol, price, true);
           }
 
           return {
@@ -280,12 +274,10 @@ export default function App() {
   const renderCard = (asset) => {
     const borderColor = asset.entryReady ? 'green' : asset.watchlist ? '#FFA500' : 'red';
     const buyPrice = asset.price * 1.005;
-    let qty = 1;
-    if (accountCash < asset.price) {
-      qty = parseFloat((accountCash / asset.price).toFixed(6));
-    }
+    const tradeAmount = accountCash * TRADE_FRACTION;
+    const qty = parseFloat((tradeAmount / buyPrice).toFixed(6));
     const projectedCost = qty * buyPrice;
-    const canBuy = accountCash >= MIN_ORDER_COST && projectedCost >= MIN_ORDER_COST;
+    const canBuy = projectedCost >= MIN_ORDER_COST;
     return (
       <View key={asset.symbol} style={[styles.card, { borderLeftColor: borderColor }]}>
         <Text style={styles.symbol}>{asset.name} ({asset.symbol})</Text>
