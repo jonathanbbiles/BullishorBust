@@ -18,12 +18,19 @@ const HEADERS = {
 
 const DATA_BASE_URL = 'https://data.alpaca.markets/v1beta1/crypto';
 
-// Fixed list of supported USD crypto pairs
+// Fixed list of supported USD crypto pairs for analytics display
 const DEFAULT_TOKENS = [
   "BTC/USD", "ETH/USD", "SOL/USD", "LTC/USD", "BCH/USD",
   "DOGE/USD", "AVAX/USD", "ADA/USD", "UNI/USD", "MATIC/USD",
   "LINK/USD", "AAVE/USD", "COMP/USD", "XLM/USD", "DOT/USD",
   "FIL/USD", "ETC/USD", "ALGO/USD", "ATOM/USD", "MKR/USD"
+];
+
+// Official list of Alpaca tradable crypto symbols
+const ALPACA_CRYPTO = [
+  'AAVE', 'AVAX', 'BAT', 'BCH', 'BTC', 'CRV', 'DOGE', 'DOT', 'ETH',
+  'GRT', 'LINK', 'LTC', 'MKR', 'SHIB', 'SUSHI', 'UNI', 'USDC', 'USDT',
+  'XTZ', 'YFI'
 ];
 
 export default function App() {
@@ -150,6 +157,11 @@ export default function App() {
   };
 
   const placeOrder = async (symbol, isAuto = false) => {
+    const base = symbol.split('/')[0];
+    if (!ALPACA_CRYPTO.includes(base)) {
+      Alert.alert('❌ Trade Unsupported', 'Alpaca does not support buying ' + symbol);
+      return;
+    }
     try {
       const cash = await fetchAccountCash();
       const tradeDollars = cash * TRADE_FRACTION;
@@ -171,11 +183,15 @@ export default function App() {
 
 
   const loadAssets = async () => {
-    // Use fixed list of supported tokens with simple name mapping
-    const assets = DEFAULT_TOKENS.map(sym => ({
-      symbol: sym,
-      name: sym.split('/')[0]
-    }));
+    // Map default tokens and mark whether Alpaca allows trading
+    const assets = DEFAULT_TOKENS.map(sym => {
+      const base = sym.split('/')[0];
+      return {
+        symbol: sym,
+        name: base,
+        notTradable: !ALPACA_CRYPTO.includes(base)
+      };
+    });
     setTracked(assets);
   };
 
@@ -293,6 +309,9 @@ export default function App() {
           <Text style={styles.error}>Error: {asset.error}</Text>
         ) : (
           <>
+            {asset.notTradable && (
+              <Text style={styles.warning}>⚠️ Not Tradable</Text>
+            )}
             <Text>Price: ${asset.price}</Text>
             <Text>RSI: {asset.rsi} | MACD: {asset.macd} | Signal: {asset.signal}</Text>
             <Text>Trend: {asset.trend}</Text>
@@ -339,6 +358,7 @@ const styles = StyleSheet.create({
   },
   symbol: { fontSize: 15, fontWeight: 'bold', color: '#005eff' },
   error: { color: 'red', fontSize: 12 },
+  warning: { color: '#FFA500', fontSize: 12 },
   buyButton: { color: '#0066cc', marginTop: 8, fontWeight: 'bold' },
   buyButtonDisabled: { color: '#999', marginTop: 8, fontWeight: 'bold' },
 });

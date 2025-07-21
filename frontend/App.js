@@ -25,6 +25,13 @@ const DEFAULT_TOKENS = [
   'FIL/USD', 'ETC/USD', 'ALGO/USD', 'ATOM/USD', 'MKR/USD'
 ];
 
+// Official Alpaca tradable crypto symbols
+const ALPACA_CRYPTO = [
+  'AAVE', 'AVAX', 'BAT', 'BCH', 'BTC', 'CRV', 'DOGE', 'DOT', 'ETH',
+  'GRT', 'LINK', 'LTC', 'MKR', 'SHIB', 'SUSHI', 'UNI', 'USDC', 'USDT',
+  'XTZ', 'YFI'
+];
+
 export default function App() {
   const [tracked, setTracked] = useState([]);
   const [assetError, setAssetError] = useState(null);
@@ -75,6 +82,11 @@ export default function App() {
   };
 
   const placeOrder = async (symbol, price) => {
+    const base = symbol.split('/')[0];
+    if (!ALPACA_CRYPTO.includes(base)) {
+      Alert.alert('❌ Trade Unsupported', 'Alpaca does not support buying ' + symbol);
+      return;
+    }
     try {
       const qty = 1;
       const buyPrice = (price * 1.005).toFixed(2);
@@ -129,7 +141,10 @@ export default function App() {
   };
 
   const loadAssets = () => {
-    const assets = DEFAULT_TOKENS.map(sym => ({ symbol: sym, name: sym.split('/')[0] }));
+    const assets = DEFAULT_TOKENS.map(sym => {
+      const base = sym.split('/')[0];
+      return { symbol: sym, name: base, notTradable: !ALPACA_CRYPTO.includes(base) };
+    });
     setTracked(assets);
     setAssetError(null);
   };
@@ -258,6 +273,7 @@ export default function App() {
       <View key={asset.symbol} style={[styles.card, { borderLeftColor: borderColor }]}>
         <Text style={styles.symbol}>{asset.name} ({asset.symbol})</Text>
         {asset.warning && <Text style={styles.warning}>{asset.warning}</Text>}
+        {asset.notTradable && <Text style={styles.warning}>⚠️ Not Tradable</Text>}
         <Text>Price: ${asset.price ?? 'N/A'}</Text>
         <Text>RSI: {asset.rsi ?? 'N/A'} | MACD: {asset.macd ?? 'N/A'} | Signal: {asset.signal ?? 'N/A'}</Text>
         <Text>Trend: {asset.trend}</Text>
