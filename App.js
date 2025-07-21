@@ -1,4 +1,4 @@
-// Bullish or Bust! – Alpaca Integrated Trading App
+// Bullish or Bust! – Alpaca Integrated Trading App with dynamic tradable token validation
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
@@ -16,24 +16,24 @@ const HEADERS = {
   'Content-Type': 'application/json'
 };
 
-const DATA_BASE_URL = 'https://data.alpaca.markets/v1beta1/crypto';
 
-// Fixed list of supported USD crypto pairs
+// Fixed list of supported USD crypto pairs for analytics display
 const DEFAULT_TOKENS = [
-  "BTC/USD", "ETH/USD", "SOL/USD", "LTC/USD", "BCH/USD",
-  "DOGE/USD", "AVAX/USD", "ADA/USD", "UNI/USD", "MATIC/USD",
-  "LINK/USD", "AAVE/USD", "COMP/USD", "XLM/USD", "DOT/USD",
-  "FIL/USD", "ETC/USD", "ALGO/USD", "ATOM/USD", "MKR/USD"
+  "AAVE/USD", "AVAX/USD", "BAT/USD", "BCH/USD", "BTC/USD",
+  "CRV/USD", "DOGE/USD", "DOT/USD", "ETH/USD", "GRT/USD",
+  "LINK/USD", "LTC/USD", "MKR/USD", "SHIB/USD", "SUSHI/USD",
+  "UNI/USD", "USDC/USD", "USDT/USD", "XTZ/USD", "YFI/USD"
 ];
 
+
 export default function App() {
-  const pendingSales = {};
   const [tracked, setTracked] = useState([]);
   const [data, setData] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [autoTrade, setAutoTrade] = useState(false);
   const [accountCash, setAccountCash] = useState(0);
+  const [tradableTokens, setTradableTokens] = useState([]);
 
   const calcRSI = (closes, period = 14) => {
     if (closes.length < period + 1) return null;
@@ -86,6 +86,23 @@ export default function App() {
       return parseFloat(data.cash || 0);
     } catch {
       return 0;
+    }
+  };
+
+  const fetchTradableTokens = async () => {
+    try {
+      const res = await fetch(
+        `${ALPACA_BASE_URL}/assets?asset_class=crypto`,
+        { headers: HEADERS }
+      );
+      const assets = await res.json();
+      const tokens = Array.isArray(assets)
+        ? assets.filter(a => a.tradable).map(a => a.symbol)
+        : [];
+      setTradableTokens(tokens);
+    } catch (err) {
+      console.error('Failed to fetch tradable tokens', err);
+      setTradableTokens([]);
     }
   };
 
@@ -150,6 +167,10 @@ export default function App() {
   };
 
   const placeOrder = async (symbol, isAuto = false) => {
+    if (!tradableTokens.includes(symbol)) {
+      Alert.alert('❌ Trade Unsupported', `Alpaca does not support trading ${symbol}`);
+      return;
+    }
     try {
       const cash = await fetchAccountCash();
       const tradeDollars = cash * TRADE_FRACTION;
@@ -170,8 +191,8 @@ export default function App() {
 
 
 
-  const loadAssets = async () => {
-    // Use fixed list of supported tokens with simple name mapping
+  const loadAssets = () => {
+    // Map default tokens for analytics; tradable flag added later
     const assets = DEFAULT_TOKENS.map(sym => ({
       symbol: sym,
       name: sym.split('/')[0]
@@ -237,10 +258,16 @@ export default function App() {
           }
 
           return {
-            ...asset, price,
-            rsi: rsi?.toFixed(1), macd: macd?.toFixed(3),
-            signal: signal?.toFixed(3), trend,
-            entryReady, watchlist, time: new Date().toLocaleTimeString()
+            ...asset,
+            price,
+            rsi: rsi?.toFixed(1),
+            macd: macd?.toFixed(3),
+            signal: signal?.toFixed(3),
+            trend,
+            tradable: tradableTokens.includes(asset.symbol),
+            entryReady,
+            watchlist,
+            time: new Date().toLocaleTimeString(),
           };
         } catch (err) {
           return { ...asset, error: err.message };
@@ -261,9 +288,13 @@ export default function App() {
   };
 
   useEffect(() => {
+    fetchTradableTokens();
+    const interval = setInterval(fetchTradableTokens, 3600000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
     loadAssets();
-    const assetInterval = setInterval(loadAssets, 3600000);
-    return () => clearInterval(assetInterval);
   }, []);
 
   useEffect(() => {
@@ -271,11 +302,11 @@ export default function App() {
     loadData();
     const interval = setInterval(loadData, 60000);
     return () => clearInterval(interval);
-  }, [tracked, autoTrade]);
+  }, [tracked, autoTrade, tradableTokens]);
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadAssets();
+    fetchTradableTokens();
     loadData();
   };
 
@@ -293,6 +324,9 @@ export default function App() {
           <Text style={styles.error}>Error: {asset.error}</Text>
         ) : (
           <>
+            {!asset.tradable && (
+              <Text style={styles.warning}>⚠️ Not Tradable</Text>
+            )}
             <Text>Price: ${asset.price}</Text>
             <Text>RSI: {asset.rsi} | MACD: {asset.macd} | Signal: {asset.signal}</Text>
             <Text>Trend: {asset.trend}</Text>
@@ -339,6 +373,7 @@ const styles = StyleSheet.create({
   },
   symbol: { fontSize: 15, fontWeight: 'bold', color: '#005eff' },
   error: { color: 'red', fontSize: 12 },
+  warning: { color: '#FFA500', fontSize: 12 },
   buyButton: { color: '#0066cc', marginTop: 8, fontWeight: 'bold' },
   buyButtonDisabled: { color: '#999', marginTop: 8, fontWeight: 'bold' },
 });
