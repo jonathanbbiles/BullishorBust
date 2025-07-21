@@ -21,9 +21,9 @@ const DATA_BASE_URL = 'https://data.alpaca.markets/v1beta1/crypto';
 // Fixed list of supported USD crypto pairs
 const DEFAULT_TOKENS = [
   "BTC/USD", "ETH/USD", "SOL/USD", "LTC/USD", "BCH/USD",
-  "AVAX/USD", "DOGE/USD", "ADA/USD", "LINK/USD", "MATIC/USD",
-  "UNI/USD", "ATOM/USD", "XLM/USD", "AAVE/USD", "ALGO/USD",
-  "ETC/USD", "EOS/USD", "FIL/USD", "NEAR/USD", "XTZ/USD"
+  "DOGE/USD", "AVAX/USD", "ADA/USD", "UNI/USD", "MATIC/USD",
+  "LINK/USD", "AAVE/USD", "COMP/USD", "XLM/USD", "DOT/USD",
+  "FIL/USD", "ETC/USD", "ALGO/USD", "ATOM/USD", "MKR/USD"
 ];
 
 export default function App() {
