@@ -184,28 +184,29 @@ export default function App() {
       tracked.map(async asset => {
         try {
           const pair = asset.symbol.toUpperCase();
-          const isUsd = pair.endsWith('USD') || pair.endsWith('/USD');
-          if (!isUsd) {
-            return { ...asset, error: 'Unsupported pair' };
+          const match = pair.match(/^([^\/]+)\/USD$/);
+          if (!match) {
+            return { ...asset, error: '⚠️ Not supported on CryptoCompare' };
           }
-          const base = pair.replace('/USD', '').replace('USD', '');
+          const base = match[1];
 
-          const priceRes = await fetch(
-            `https://min-api.cryptocompare.com/data/price?fsym=${base}&tsyms=USD`
-          );
+          const priceUrl = `https://min-api.cryptocompare.com/data/price?fsym=${base}&tsyms=USD`;
+          console.log('Price URL:', priceUrl);
+          const priceRes = await fetch(priceUrl);
           const priceData = await priceRes.json();
           const price = priceData.USD;
 
-          const histoRes = await fetch(
-            `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${base}&tsym=USD&limit=52&aggregate=15`
-          );
+          const histoUrl = `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${base}&tsym=USD&limit=52&aggregate=15`;
+          console.log('Histo URL:', histoUrl);
+          const histoRes = await fetch(histoUrl);
           const histoData = await histoRes.json();
 
-          if (!histoData?.Data || !histoData.Data?.Data) {
+          const bars = Array.isArray(histoData?.Data?.Data) ? histoData.Data.Data : null;
+          if (!bars || bars.length < 20) {
             return { ...asset, error: 'No historical data' };
           }
 
-          const closes = histoData.Data.Data.map(bar => bar.close);
+          const closes = bars.map(bar => bar.close).filter(c => c != null);
 
           const rsi = calcRSI(closes);
           const prevRsi = calcRSI(closes.slice(0, -1));
@@ -247,7 +248,9 @@ export default function App() {
       if (b.watchlist) return 1;
       return 0;
     });
-    setData(sorted);
+
+    const valid = sorted.filter(a => !a.error).slice(0, 20);
+    setData(valid);
     setRefreshing(false);
   };
 
