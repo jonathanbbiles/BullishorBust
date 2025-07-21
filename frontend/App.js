@@ -4,7 +4,6 @@ import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, Switch, Alert
 } from 'react-native';
-import axios from 'axios';
 
 const ALPACA_KEY = 'PKGY01ABISEXQJZX5L7M';
 const ALPACA_SECRET = 'PwJAEwLnLnsf7qAVvFutE8VIMgsAgvi7PMkMcCca';
@@ -18,22 +17,13 @@ const HEADERS = {
 
 const DATA_BASE_URL = 'https://data.alpaca.markets/v1beta1/crypto';
 
-// Fixed list of supported USD crypto pairs
-const DEFAULT_TOKENS = [
-  "BTC/USD", "ETH/USD", "SOL/USD", "LTC/USD", "BCH/USD",
-  "AVAX/USD", "DOGE/USD", "ADA/USD", "LINK/USD", "MATIC/USD",
-  "UNI/USD", "ATOM/USD", "XLM/USD", "AAVE/USD", "ALGO/USD",
-  "ETC/USD", "EOS/USD", "FIL/USD", "NEAR/USD", "XTZ/USD"
-];
-
 export default function App() {
   const [tracked, setTracked] = useState([]);
+  const [assetError, setAssetError] = useState(null);
   const [data, setData] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [autoTrade, setAutoTrade] = useState(false);
-  const [accountCash, setAccountCash] = useState(0);
-  const pendingSales = {};
 
   const calcRSI = (closes, period = 14) => {
     if (closes.length < period + 1) return null;
@@ -76,109 +66,142 @@ export default function App() {
     return slope > 0.02 ? '⬆️' : slope < -0.02 ? '⬇️' : '🟰';
   };
 
-  const MIN_ORDER_COST = 10;
-  const TRADE_FRACTION = 0.1; // 10% of available cash
-
-  const fetchAccountCash = async () => {
+  const placeOrder = async (symbol, price) => {
     try {
-      const res = await fetch(`${ALPACA_BASE_URL}/account`, { headers: HEADERS });
-      const data = await res.json();
-      return parseFloat(data.cash || 0);
-    } catch {
-      return 0;
-    }
-  };
+      const qty = 1;
+      const buyPrice = (price * 1.005).toFixed(2);
+      const order = {
+        symbol,
+        qty,
+        side: 'buy',
+        type: 'limit',
+        time_in_force: 'gtc',
+        limit_price: buyPrice
+      };
+      const res = await fetch(`${ALPACA_BASE_URL}/orders`, {
+        method: 'POST',
+        headers: HEADERS,
+        body: JSON.stringify(order)
+      });
+      const buyData = await res.json();
+      if (res.ok) {
+        Alert.alert('✅ Buy Success', `Order placed for ${symbol} at $${buyPrice}`);
+        console.log('✅ Order success:', buyData);
 
-  const manualBuyAndAutoSell = async (symbol, notionalUSD, isAuto = false) => {
-    try {
-      const buyOrder = await axios.post(
-        `${ALPACA_BASE_URL}/orders`,
-        {
-          symbol,
-          notional: notionalUSD,
-          side: 'buy',
-          type: 'market',
-          time_in_force: 'gtc'
-        },
-        { headers: HEADERS }
-      );
-
-      const buyId = buyOrder.data.id;
-      console.log(`Buy submitted: ${symbol}, Order ID: ${buyId}`);
-
-      let filledOrder = null;
-      for (let i = 0; i < 20; i++) {
-        const status = await axios.get(`${ALPACA_BASE_URL}/orders/${buyId}`, { headers: HEADERS });
-        if (status.data.status === 'filled') {
-          filledOrder = status.data;
-          break;
-        }
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-
-      if (!filledOrder) {
-        const msg = 'Buy order did not fill within 20 seconds.';
-        isAuto ? console.log(msg) : Alert.alert('❌ Buy Timeout', msg);
-        return;
-      }
-
-      const qty = filledOrder.filled_qty;
-      const avgPrice = parseFloat(filledOrder.filled_avg_price);
-      const limitPrice = (avgPrice * 1.005).toFixed(2);
-
-      const sellOrder = await axios.post(
-        `${ALPACA_BASE_URL}/orders`,
-        {
+        const sellPrice = (parseFloat(buyPrice) * 1.005).toFixed(2);
+        const sellOrder = {
           symbol,
           qty,
           side: 'sell',
           type: 'limit',
-          limit_price: limitPrice,
-          time_in_force: 'gtc'
-        },
-        { headers: HEADERS }
-      );
-
-      const message = `Sell order placed: ${qty} ${symbol} at $${limitPrice}`;
-      isAuto ? console.log(message) : Alert.alert('✅ Sell Placed', message);
-      console.log(message);
-    } catch (err) {
-      console.error('Trade Error:', err.response?.data || err.message);
-      const msg = err.response?.data?.message || err.message;
-      isAuto ? console.log(msg) : Alert.alert('❌ Trade Error', msg);
-    }
-  };
-
-  const placeOrder = async (symbol, isAuto = false) => {
-    try {
-      const cash = await fetchAccountCash();
-      const tradeDollars = cash * TRADE_FRACTION;
-      if (tradeDollars < MIN_ORDER_COST) {
-        const msg = isAuto
-          ? 'Skipped auto-buy: Trade size <$10.'
-          : 'Buy Skipped: Alpaca requires $10 minimum per trade.';
-        isAuto ? console.log(msg) : Alert.alert(msg);
-        return;
+          time_in_force: 'gtc',
+          limit_price: sellPrice
+        };
+        const resSell = await fetch(`${ALPACA_BASE_URL}/orders`, {
+          method: 'POST',
+          headers: HEADERS,
+          body: JSON.stringify(sellOrder)
+        });
+        const sellData = await resSell.json();
+        if (resSell.ok) {
+          Alert.alert('✅ Sell Placed', `Limit sell for ${symbol} at $${sellPrice}`);
+          console.log('✅ Sell order success:', sellData);
+        } else {
+          Alert.alert('❌ Sell Failed', sellData.message || 'Unknown error');
+          console.error('❌ Sell order failed:', sellData);
+        }
+      } else {
+        Alert.alert('❌ Buy Failed', buyData.message || 'Unknown error');
+        console.error('❌ Order failed:', buyData);
       }
-      const notional = parseFloat(tradeDollars.toFixed(2));
-      await manualBuyAndAutoSell(symbol, notional, isAuto);
     } catch (err) {
-      isAuto ? console.log(err.message) : Alert.alert('❌ Order Error', err.message);
+      Alert.alert('❌ Order Error', err.message);
       console.error('❌ Order error:', err);
     }
   };
 
-
-
   const loadAssets = async () => {
-    // Use fixed list of supported tokens with simple name mapping
-    const assets = DEFAULT_TOKENS.map(sym => ({
-      symbol: sym,
-      name: sym.split('/')[0]
-    }));
-    setTracked(assets);
-  };
+    try {
+      const res = await fetch(
+        `${ALPACA_BASE_URL}/assets?status=active&asset_class=crypto`,
+        { headers: HEADERS }
+      );
+      const assets = await res.json();
+      const tradables = assets.filter(a => a.class === 'crypto' && a.tradable);
+      const symbols = tradables.map(a => a.symbol).join(',');
 
+      const snapRes = await fetch(
+        `${DATA_BASE_URL}/snapshots?symbols=${symbols}`,
+        { headers: HEADERS }
+      );
+      const snapData = await snapRes.json();
+
+      const calcVol = async (asset) => {
+        let bar = snapData[asset.symbol]?.latestBar || null;
+
+        if (!bar) {
+          try {
+            const barsRes = await fetch(
+              `${DATA_BASE_URL}/bars?symbols=${asset.symbol}&timeframe=15Min&limit=1`,
+              { headers: HEADERS }
+            );
+            const barsData = await barsRes.json();
+            bar = barsData[asset.symbol]?.[0] || null;
+          } catch {
+            bar = null;
+          }
+        }
+
+        if (!bar || bar.h == null || bar.l == null || bar.c == null || bar.c === 0) {
+          console.log('Skipping asset due to missing bar data:', asset.symbol);
+          return null;
+        }
+
+        const high = Number(bar.h);
+        const low = Number(bar.l);
+        const close = Number(bar.c);
+
+        if (high === low && low === close) {
+          console.log('Skipping asset due to zero volatility:', asset.symbol);
+          return null;
+        }
+
+        const volatility = (high - low) / close;
+        if (!isFinite(volatility) || volatility <= 0) {
+          console.log('Skipping asset due to zero volatility:', asset.symbol);
+          return null;
+        }
+
+        return { name: asset.name, symbol: asset.symbol, volat: volatility };
+      };
+
+      let ranked = await Promise.all(tradables.map(calcVol));
+      let valid = ranked.filter(Boolean).sort((a, b) => b.volat - a.volat);
+
+      if (valid.length < 10) {
+        const fallback = ['BTC/USD', 'ETH/USD', 'DOGE/USD', 'SOL/USD', 'LTC/USD', 'BCH/USD'];
+        const missing = fallback.filter(sym => !valid.some(v => v.symbol === sym));
+        for (const sym of missing) {
+          const extra = tradables.find(t => t.symbol === sym);
+          if (!extra) continue;
+          const result = await calcVol(extra);
+          if (result) valid.push(result);
+          if (valid.length >= 10) break;
+        }
+        console.log('Using fallback assets:', missing);
+      }
+
+      if (valid.length < 10) {
+        Alert.alert('Data Issue', `Only ${valid.length} assets have valid volatility`);
+      }
+
+      setTracked(valid.slice(0, 20));
+      setAssetError(null);
+    } catch (err) {
+      console.error('asset load failed', err);
+      setAssetError('Unable to load assets from Alpaca');
+    }
+  };
 
   const loadData = async () => {
     if (tracked.length === 0) {
@@ -186,8 +209,6 @@ export default function App() {
       setRefreshing(false);
       return;
     }
-    const cash = await fetchAccountCash();
-    setAccountCash(cash);
     const results = await Promise.all(
       tracked.map(async asset => {
         try {
@@ -217,11 +238,13 @@ export default function App() {
           const closes = bars.map(bar => bar.close).filter(c => c != null);
 
           const rsi = calcRSI(closes);
+          const prevRsi = calcRSI(closes.slice(0, -1));
           const { macd, signal } = calcMACD(closes);
           const trend = getTrendSymbol(closes);
 
           const macdBullish = macd > signal;
-          const rsiOK = rsi >= 30 && rsi < 70;
+          const rsiRising = rsi > prevRsi;
+          const rsiBelow70 = rsi < 70;
           const trendOK = trend === '⬆️' || trend === '🟰';
           const last5 = closes.slice(-5);
           const volRange = Math.max(...last5) - Math.min(...last5);
@@ -229,11 +252,11 @@ export default function App() {
           const underBreakout = asset.symbol !== 'DOGE' || price < 0.255;
 
           const entryReady =
-            macdBullish && rsiOK && trendOK && lowVol && underBreakout;
+            macdBullish && rsiRising && rsiBelow70 && trendOK && lowVol && underBreakout;
           const watchlist = macdBullish && !entryReady;
 
           if (entryReady && autoTrade) {
-            await placeOrder(asset.symbol, true);
+            await placeOrder(asset.symbol, price);
           }
 
           return {
@@ -281,11 +304,6 @@ export default function App() {
 
   const renderCard = (asset) => {
     const borderColor = asset.entryReady ? 'green' : asset.watchlist ? '#FFA500' : 'red';
-    const buyPrice = asset.price * 1.005;
-    const tradeAmount = accountCash * TRADE_FRACTION;
-    const qty = parseFloat((tradeAmount / buyPrice).toFixed(6));
-    const projectedCost = qty * buyPrice;
-    const canBuy = projectedCost >= MIN_ORDER_COST;
     return (
       <View key={asset.symbol} style={[styles.card, { borderLeftColor: borderColor }]}>
         <Text style={styles.symbol}>{asset.name} ({asset.symbol})</Text>
@@ -297,8 +315,8 @@ export default function App() {
             <Text>RSI: {asset.rsi} | MACD: {asset.macd} | Signal: {asset.signal}</Text>
             <Text>Trend: {asset.trend}</Text>
             <Text>{asset.time}</Text>
-            <TouchableOpacity onPress={() => placeOrder(asset.symbol)} disabled={!canBuy}>
-              <Text style={[styles.buyButton, !canBuy && styles.buyButtonDisabled]}>Manual BUY</Text>
+            <TouchableOpacity onPress={() => placeOrder(asset.symbol, asset.price)}>
+              <Text style={styles.buyButton}>Manual BUY</Text>
             </TouchableOpacity>
           </>
         )}
@@ -316,6 +334,7 @@ export default function App() {
         <Text style={[styles.title, darkMode && styles.titleDark]}>🎭 Bullish or Bust!</Text>
         <Switch value={autoTrade} onValueChange={setAutoTrade} />
       </View>
+      {assetError && <Text style={styles.error}>{assetError}</Text>}
       <View style={styles.cardGrid}>{data.map(renderCard)}</View>
     </ScrollView>
   );
@@ -340,5 +359,4 @@ const styles = StyleSheet.create({
   symbol: { fontSize: 15, fontWeight: 'bold', color: '#005eff' },
   error: { color: 'red', fontSize: 12 },
   buyButton: { color: '#0066cc', marginTop: 8, fontWeight: 'bold' },
-  buyButtonDisabled: { color: '#999', marginTop: 8, fontWeight: 'bold' },
 });
