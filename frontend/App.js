@@ -73,10 +73,38 @@ export default function App() {
     return slope > 0.02 ? '⬆️' : slope < -0.02 ? '⬇️' : '🟰';
   };
 
+  const MIN_ORDER_COST = 10;
+
+  const fetchAccountCash = async () => {
+    try {
+      const res = await fetch(`${ALPACA_BASE_URL}/account`, { headers: HEADERS });
+      const data = await res.json();
+      return parseFloat(data.cash || 0);
+    } catch {
+      return 0;
+    }
+  };
+
   const placeOrder = async (symbol, price) => {
     try {
-      const qty = 1;
+      const cash = await fetchAccountCash();
+      if (cash < MIN_ORDER_COST) {
+        Alert.alert('Insufficient funds for Alpaca minimum order.');
+        return;
+      }
+
+      let qty = 1;
+      if (cash < price) {
+        qty = parseFloat((cash / price).toFixed(6));
+      }
+
       const buyPrice = (price * 1.005).toFixed(2);
+      const orderCost = qty * parseFloat(buyPrice);
+      if (orderCost < MIN_ORDER_COST) {
+        Alert.alert('Buy Failed: Alpaca requires orders to be at least $10 total.');
+        return;
+      }
+
       const order = {
         symbol,
         qty,
