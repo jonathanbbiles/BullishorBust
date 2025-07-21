@@ -183,14 +183,21 @@ export default function App() {
     const results = await Promise.all(
       tracked.map(async asset => {
         try {
+          const pair = asset.symbol.toUpperCase();
+          const isUsd = pair.endsWith('USD') || pair.endsWith('/USD');
+          if (!isUsd) {
+            return { ...asset, error: 'Unsupported pair' };
+          }
+          const base = pair.replace('/USD', '').replace('USD', '');
+
           const priceRes = await fetch(
-            `https://min-api.cryptocompare.com/data/price?fsym=${asset.symbol}&tsyms=USD`
+            `https://min-api.cryptocompare.com/data/price?fsym=${base}&tsyms=USD`
           );
           const priceData = await priceRes.json();
           const price = priceData.USD;
 
           const histoRes = await fetch(
-            `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${asset.symbol}&tsym=USD&limit=52&aggregate=15`
+            `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${base}&tsym=USD&limit=52&aggregate=15`
           );
           const histoData = await histoRes.json();
 
