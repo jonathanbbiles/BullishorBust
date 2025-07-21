@@ -17,12 +17,16 @@ const HEADERS = {
 
 const DATA_BASE_URL = 'https://data.alpaca.markets/v1beta1/crypto';
 
-// Default list of 20 USD crypto pairs
+// Default list of Alpaca supported USD crypto pairs
 const DEFAULT_TOKENS = [
-  'BTC/USD', 'ETH/USD', 'SOL/USD', 'LTC/USD', 'BCH/USD',
-  'AVAX/USD', 'DOGE/USD', 'ADA/USD', 'LINK/USD', 'MATIC/USD',
-  'UNI/USD', 'ATOM/USD', 'XLM/USD', 'AAVE/USD', 'ALGO/USD',
-  'ETC/USD', 'EOS/USD', 'FIL/USD', 'NEAR/USD', 'XTZ/USD'
+  'BTC/USD',
+  'ETH/USD',
+  'SOL/USD',
+  'LTC/USD',
+  'BCH/USD',
+  'DOGE/USD',
+  'AVAX/USD',
+  'ADA/USD',
 ];
 
 export default function App() {
@@ -135,69 +139,21 @@ export default function App() {
         { headers: HEADERS }
       );
       const assets = await res.json();
-      const tradables = assets.filter(
-        a => a.tradable && DEFAULT_TOKENS.includes(a.symbol)
-      );
-      const symbols = tradables.map(a => a.symbol).join(',');
-
-      const snapRes = await fetch(
-        `${DATA_BASE_URL}/snapshots?symbols=${symbols}`,
-        { headers: HEADERS }
-      );
-      const snapData = await snapRes.json();
-
-      const calcVol = async (asset) => {
-        let bar = snapData[asset.symbol]?.latestBar || null;
-
-        if (!bar) {
-          try {
-            const barsRes = await fetch(
-              `${DATA_BASE_URL}/bars?symbols=${asset.symbol}&timeframe=15Min&limit=1`,
-              { headers: HEADERS }
-            );
-            const barsData = await barsRes.json();
-            bar = barsData[asset.symbol]?.[0] || null;
-          } catch {
-            bar = null;
-          }
-        }
-
-        if (!bar || bar.h == null || bar.l == null || bar.c == null || bar.c === 0) {
-          console.log('Skipping asset due to missing bar data:', asset.symbol);
-          return null;
-        }
-
-        const high = Number(bar.h);
-        const low = Number(bar.l);
-        const close = Number(bar.c);
-
-        if (high === low && low === close) {
-          console.log('Skipping asset due to zero volatility:', asset.symbol);
-          return null;
-        }
-
-        const volatility = (high - low) / close;
-        if (!isFinite(volatility) || volatility <= 0) {
-          console.log('Skipping asset due to zero volatility:', asset.symbol);
-          return null;
-        }
-
-        return { name: asset.name, symbol: asset.symbol, volat: volatility };
-      };
-
-      let ranked = await Promise.all(tradables.map(calcVol));
-      let valid = ranked.filter(Boolean).sort((a, b) => b.volat - a.volat);
-
-      if (valid.length === 0) {
-        setAssetError('No crypto assets with valid volatility');
-      } else {
+      const tradables = assets.filter(a => a.tradable && DEFAULT_TOKENS.includes(a.symbol));
+      if (tradables.length > 0) {
+        setTracked(tradables.map(a => ({ symbol: a.symbol, name: a.name })));
         setAssetError(null);
+        return;
       }
-
-      setTracked(valid.slice(0, 20));
     } catch (err) {
       console.error('asset load failed', err);
-      setAssetError('Unable to load assets from Alpaca');
+    }
+    const fallback = DEFAULT_TOKENS.map(sym => ({ symbol: sym, name: sym.split('/')[0] }));
+    setTracked(fallback);
+    if (fallback.length === 0) {
+      setAssetError('No crypto assets with valid volatility');
+    } else {
+      setAssetError(null);
     }
   };
 
@@ -213,7 +169,7 @@ export default function App() {
           const pair = asset.symbol.toUpperCase();
           const match = pair.match(/^([^\/]+)\/USD$/);
           if (!match) {
-            return { ...asset, error: '⚠️ Not supported on CryptoCompare' };
+            return { ...asset, warning: '⚠️ Not supported on CryptoCompare' };
           }
           const base = match[1];
 
@@ -229,8 +185,8 @@ export default function App() {
           const histoData = await histoRes.json();
 
           const bars = Array.isArray(histoData?.Data?.Data) ? histoData.Data.Data : null;
-          if (!bars || bars.length < 20) {
-            return { ...asset, error: 'No historical data' };
+          if (!bars || bars.length === 0) {
+            return { ...asset, price, warning: '⚠️ No historical data' };
           }
 
           const closes = bars.map(bar => bar.close).filter(c => c != null);
@@ -240,34 +196,52 @@ export default function App() {
           const { macd, signal } = calcMACD(closes);
           const trend = getTrendSymbol(closes);
 
-          const macdBullish = macd > signal;
-          const rsiRising = rsi > prevRsi;
-          const rsiBelow70 = rsi < 70;
-          const trendOK = trend === '⬆️' || trend === '🟰';
           const last5 = closes.slice(-5);
-          const volRange = Math.max(...last5) - Math.min(...last5);
-          const lowVol = volRange / last5.at(-1) < 0.02;
-          const underBreakout = asset.symbol !== 'DOGE' || price < 0.255;
+          let volRange = null;
+          if (last5.length === 5) {
+            volRange = Math.max(...last5) - Math.min(...last5);
+          }
 
-          const entryReady =
-            macdBullish && rsiRising && rsiBelow70 && trendOK && lowVol && underBreakout;
-          const watchlist = macdBullish && !entryReady;
+          const rsiWarning = rsi == null || prevRsi == null ? '⚠️ RSI unavailable' : null;
+          const volWarning = volRange == null ? '⚠️ Volatility unavailable' : null;
+
+          let entryReady = false;
+          let watchlist = false;
+          if (rsi != null && prevRsi != null && volRange != null) {
+            const macdBullish = macd > signal;
+            const rsiRising = rsi > prevRsi;
+            const rsiBelow70 = rsi < 70;
+            const trendOK = trend === '⬆️' || trend === '🟰';
+            const lowVol = volRange / last5.at(-1) < 0.02;
+            const underBreakout = asset.symbol !== 'DOGE' || price < 0.255;
+            entryReady = macdBullish && rsiRising && rsiBelow70 && trendOK && lowVol && underBreakout;
+            watchlist = macdBullish && !entryReady;
+          }
 
           if (entryReady && autoTrade) {
             await placeOrder(asset.symbol, price);
           }
 
+          const warning = [rsiWarning, volWarning].filter(Boolean).join(' ');
+
           return {
-            ...asset, price,
-            rsi: rsi?.toFixed(1), macd: macd?.toFixed(3),
-            signal: signal?.toFixed(3), trend,
-            entryReady, watchlist, time: new Date().toLocaleTimeString()
+            ...asset,
+            price,
+            rsi: rsi?.toFixed(1) ?? 'N/A',
+            macd: macd?.toFixed(3),
+            signal: signal?.toFixed(3),
+            trend,
+            entryReady,
+            watchlist,
+            warning,
+            time: new Date().toLocaleTimeString(),
           };
         } catch (err) {
-          return { ...asset, error: err.message };
+          return { ...asset, warning: err.message };
         }
       })
     );
+
     const sorted = results.sort((a, b) => {
       if (a.entryReady) return -1;
       if (b.entryReady) return 1;
@@ -276,8 +250,7 @@ export default function App() {
       return 0;
     });
 
-    const valid = sorted.filter(a => !a.error).slice(0, 20);
-    setData(valid);
+    setData(sorted.slice(0, 20));
     setRefreshing(false);
   };
 
@@ -305,19 +278,14 @@ export default function App() {
     return (
       <View key={asset.symbol} style={[styles.card, { borderLeftColor: borderColor }]}>
         <Text style={styles.symbol}>{asset.name} ({asset.symbol})</Text>
-        {asset.error ? (
-          <Text style={styles.error}>Error: {asset.error}</Text>
-        ) : (
-          <>
-            <Text>Price: ${asset.price}</Text>
-            <Text>RSI: {asset.rsi} | MACD: {asset.macd} | Signal: {asset.signal}</Text>
-            <Text>Trend: {asset.trend}</Text>
-            <Text>{asset.time}</Text>
-            <TouchableOpacity onPress={() => placeOrder(asset.symbol, asset.price)}>
-              <Text style={styles.buyButton}>Manual BUY</Text>
-            </TouchableOpacity>
-          </>
-        )}
+        {asset.warning && <Text style={styles.warning}>{asset.warning}</Text>}
+        <Text>Price: ${asset.price ?? 'N/A'}</Text>
+        <Text>RSI: {asset.rsi ?? 'N/A'} | MACD: {asset.macd ?? 'N/A'} | Signal: {asset.signal ?? 'N/A'}</Text>
+        <Text>Trend: {asset.trend}</Text>
+        <Text>{asset.time}</Text>
+        <TouchableOpacity onPress={() => placeOrder(asset.symbol, asset.price)}>
+          <Text style={styles.buyButton}>Manual BUY</Text>
+        </TouchableOpacity>
       </View>
     );
   };
@@ -356,5 +324,6 @@ const styles = StyleSheet.create({
   },
   symbol: { fontSize: 15, fontWeight: 'bold', color: '#005eff' },
   error: { color: 'red', fontSize: 12 },
+  warning: { color: '#FFA500', fontSize: 12 },
   buyButton: { color: '#0066cc', marginTop: 8, fontWeight: 'bold' },
 });
