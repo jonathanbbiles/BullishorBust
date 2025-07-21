@@ -17,6 +17,14 @@ const HEADERS = {
 
 const DATA_BASE_URL = 'https://data.alpaca.markets/v1beta1/crypto';
 
+// Default list of 20 USD crypto pairs
+const DEFAULT_TOKENS = [
+  'BTC/USD', 'ETH/USD', 'SOL/USD', 'LTC/USD', 'BCH/USD',
+  'AVAX/USD', 'DOGE/USD', 'ADA/USD', 'LINK/USD', 'MATIC/USD',
+  'UNI/USD', 'ATOM/USD', 'XLM/USD', 'AAVE/USD', 'ALGO/USD',
+  'ETC/USD', 'EOS/USD', 'FIL/USD', 'NEAR/USD', 'XTZ/USD'
+];
+
 export default function App() {
   const [tracked, setTracked] = useState([]);
   const [assetError, setAssetError] = useState(null);
@@ -127,33 +135,38 @@ export default function App() {
         { headers: HEADERS }
       );
       const assets = await res.json();
-      const tradables = assets.filter(a => a.class === 'crypto' && a.tradable);
-      const symbols = tradables.map(a => a.symbol).join(',');
+      const tradables = assets.filter(
+        a => a.tradable && DEFAULT_TOKENS.includes(a.symbol)
+      );
+      const map = {};
+      tradables.forEach(a => {
+        map[a.symbol] = { symbol: a.symbol, name: a.name };
+      });
+      const tokens = DEFAULT_TOKENS.map(sym => map[sym] || { symbol: sym, name: sym });
 
       const snapRes = await fetch(
-        `${DATA_BASE_URL}/snapshots?symbols=${symbols}`,
+        `${DATA_BASE_URL}/snapshots?symbols=${DEFAULT_TOKENS.join(',')}`,
         { headers: HEADERS }
       );
       const snapData = await snapRes.json();
 
-      const calcVol = async (asset) => {
-        let bar = snapData[asset.symbol]?.latestBar || null;
+      const calcVol = async (symbol) => {
+        let bar = snapData[symbol]?.latestBar || null;
 
         if (!bar) {
           try {
             const barsRes = await fetch(
-              `${DATA_BASE_URL}/bars?symbols=${asset.symbol}&timeframe=15Min&limit=1`,
+              `${DATA_BASE_URL}/bars?symbols=${symbol}&timeframe=15Min&limit=1`,
               { headers: HEADERS }
             );
             const barsData = await barsRes.json();
-            bar = barsData[asset.symbol]?.[0] || null;
+            bar = barsData[symbol]?.[0] || null;
           } catch {
             bar = null;
           }
         }
 
         if (!bar || bar.h == null || bar.l == null || bar.c == null || bar.c === 0) {
-          console.log('Skipping asset due to missing bar data:', asset.symbol);
           return null;
         }
 
@@ -162,41 +175,28 @@ export default function App() {
         const close = Number(bar.c);
 
         if (high === low && low === close) {
-          console.log('Skipping asset due to zero volatility:', asset.symbol);
           return null;
         }
 
         const volatility = (high - low) / close;
         if (!isFinite(volatility) || volatility <= 0) {
-          console.log('Skipping asset due to zero volatility:', asset.symbol);
           return null;
         }
 
-        return { name: asset.name, symbol: asset.symbol, volat: volatility };
+        return volatility;
       };
 
-      let ranked = await Promise.all(tradables.map(calcVol));
-      let valid = ranked.filter(Boolean).sort((a, b) => b.volat - a.volat);
+      const withVol = await Promise.all(
+        tokens.map(async t => ({ ...t, volat: await calcVol(t.symbol) }))
+      );
 
-      if (valid.length < 10) {
-        const fallback = ['BTC/USD', 'ETH/USD', 'DOGE/USD', 'SOL/USD', 'LTC/USD', 'BCH/USD'];
-        const missing = fallback.filter(sym => !valid.some(v => v.symbol === sym));
-        for (const sym of missing) {
-          const extra = tradables.find(t => t.symbol === sym);
-          if (!extra) continue;
-          const result = await calcVol(extra);
-          if (result) valid.push(result);
-          if (valid.length >= 10) break;
-        }
-        console.log('Using fallback assets:', missing);
+      if (withVol.every(t => t.volat == null)) {
+        setAssetError('No crypto assets with valid volatility');
+      } else {
+        setAssetError(null);
       }
 
-      if (valid.length < 10) {
-        Alert.alert('Data Issue', `Only ${valid.length} assets have valid volatility`);
-      }
-
-      setTracked(valid.slice(0, 20));
-      setAssetError(null);
+      setTracked(withVol);
     } catch (err) {
       console.error('asset load failed', err);
       setAssetError('Unable to load assets from Alpaca');
@@ -209,13 +209,35 @@ export default function App() {
       setRefreshing(false);
       return;
     }
+    const fetchIndicators = async (base, attempt = 0) => {
+      const histoUrl = `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${base}&tsym=USD&limit=52&aggregate=15`;
+      console.log('Histo URL:', histoUrl);
+      const histoRes = await fetch(histoUrl);
+      const histoData = await histoRes.json();
+      const bars = Array.isArray(histoData?.Data?.Data) ? histoData.Data.Data : null;
+      if ((!bars || bars.length < 20) && attempt < 1) {
+        return fetchIndicators(base, attempt + 1);
+      }
+      if (!bars || bars.length < 20) return null;
+      const closes = bars.map(bar => bar.close).filter(c => c != null);
+      const rsi = calcRSI(closes);
+      const prevRsi = calcRSI(closes.slice(0, -1));
+      const { macd, signal } = calcMACD(closes);
+      const trend = getTrendSymbol(closes);
+      if ((!rsi || !macd || !signal) && attempt < 1) {
+        return fetchIndicators(base, attempt + 1);
+      }
+      if (!rsi || !macd || !signal) return null;
+      return { closes, rsi, prevRsi, macd, signal, trend };
+    };
+
     const results = await Promise.all(
       tracked.map(async asset => {
         try {
           const pair = asset.symbol.toUpperCase();
           const match = pair.match(/^([^\/]+)\/USD$/);
           if (!match) {
-            return { ...asset, error: '⚠️ Not supported on CryptoCompare' };
+            return null;
           }
           const base = match[1];
 
@@ -225,22 +247,9 @@ export default function App() {
           const priceData = await priceRes.json();
           const price = priceData.USD;
 
-          const histoUrl = `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${base}&tsym=USD&limit=52&aggregate=15`;
-          console.log('Histo URL:', histoUrl);
-          const histoRes = await fetch(histoUrl);
-          const histoData = await histoRes.json();
-
-          const bars = Array.isArray(histoData?.Data?.Data) ? histoData.Data.Data : null;
-          if (!bars || bars.length < 20) {
-            return { ...asset, error: 'No historical data' };
-          }
-
-          const closes = bars.map(bar => bar.close).filter(c => c != null);
-
-          const rsi = calcRSI(closes);
-          const prevRsi = calcRSI(closes.slice(0, -1));
-          const { macd, signal } = calcMACD(closes);
-          const trend = getTrendSymbol(closes);
+          const ind = await fetchIndicators(base);
+          if (!ind) return null;
+          const { closes, rsi, prevRsi, macd, signal, trend } = ind;
 
           const macdBullish = macd > signal;
           const rsiRising = rsi > prevRsi;
@@ -260,13 +269,18 @@ export default function App() {
           }
 
           return {
-            ...asset, price,
-            rsi: rsi?.toFixed(1), macd: macd?.toFixed(3),
-            signal: signal?.toFixed(3), trend,
-            entryReady, watchlist, time: new Date().toLocaleTimeString()
+            ...asset,
+            price,
+            rsi: rsi.toFixed(1),
+            macd: macd.toFixed(3),
+            signal: signal.toFixed(3),
+            trend,
+            entryReady,
+            watchlist,
+            time: new Date().toLocaleTimeString(),
           };
-        } catch (err) {
-          return { ...asset, error: err.message };
+        } catch {
+          return null;
         }
       })
     );
@@ -277,8 +291,12 @@ export default function App() {
       if (b.watchlist) return 1;
       return 0;
     });
-
-    const valid = sorted.filter(a => !a.error).slice(0, 20);
+    const valid = sorted.filter(Boolean).slice(0, 20);
+    if (valid.length === 0) {
+      setAssetError('No crypto assets with valid data');
+    } else {
+      setAssetError(null);
+    }
     setData(valid);
     setRefreshing(false);
   };
@@ -319,15 +337,15 @@ export default function App() {
               <Text style={styles.buyButton}>Manual BUY</Text>
             </TouchableOpacity>
           </>
-        )}
+        )
       </View>
     );
   };
 
   return (
     <ScrollView
-      contentContainerStyle={[styles.container, darkMode && styles.containerDark]}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        contentContainerStyle={[styles.container, darkMode && styles.containerDark]}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
       <View style={styles.row}>
         <Switch value={darkMode} onValueChange={setDarkMode} />
