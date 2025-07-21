@@ -128,7 +128,35 @@ export default function App() {
       if (res.ok) {
         Alert.alert('✅ Buy Success', `Order placed for ${symbol} at $${buyPrice}`);
         console.log('✅ Order success:', buyData);
-        console.log(`Buy order filled for ${symbol}: qty ${qty}, price ${buyPrice}`);
+        const orderId = buyData.id;
+        const waitForFill = async (id, retries = 30, delay = 2000) => {
+          for (let i = 0; i < retries; i++) {
+            try {
+              const resp = await fetch(`${ALPACA_BASE_URL}/orders/${id}`, { headers: HEADERS });
+              if (resp.ok) {
+                const data = await resp.json();
+                if (data.status === 'filled') return data;
+              }
+            } catch (err) {
+              console.error('Error checking order status:', err);
+            }
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+          throw new Error('Buy order not filled in time');
+        };
+
+        let filled;
+        try {
+          filled = await waitForFill(orderId);
+        } catch (err) {
+          console.error('❌ Fill wait error:', err);
+          isAuto ? console.log(err.message) : Alert.alert('❌ Buy Fill Error', err.message);
+          return;
+        }
+
+        const filledQty = parseFloat(filled.filled_qty);
+        const avgPrice = parseFloat(filled.filled_avg_price);
+        console.log(`Buy filled for ${symbol}: qty ${filledQty} avg ${avgPrice}`);
 
         const symbolKey = symbol.replace('/', '');
 
@@ -147,8 +175,8 @@ export default function App() {
           console.error('Error cancelling existing sell orders:', err);
         }
 
-        const limitPrice = parseFloat((buyPrice * 1.005).toFixed(5));
-        const sellValue = qty * limitPrice;
+        const limitPrice = parseFloat((avgPrice * 1.0025).toFixed(5));
+        const sellValue = filledQty * limitPrice;
         if (sellValue < MIN_ORDER_COST) {
           console.log(`Sell order for ${symbol} skipped: value < $10`);
           return;
@@ -156,13 +184,13 @@ export default function App() {
 
         const sellOrder = {
           symbol,
-          qty: parseFloat(qty.toFixed(6)),
+          qty: parseFloat(filledQty.toFixed(6)),
           side: 'sell',
           type: 'limit',
           time_in_force: 'gtc',
           limit_price: limitPrice
         };
-        console.log(`Placing sell for ${symbol}: buy ${buyPrice} qty ${qty} limit ${limitPrice}`);
+        console.log(`Placing sell for ${symbol}: qty ${filledQty} limit ${limitPrice}`);
         const resSell = await fetch(`${ALPACA_BASE_URL}/orders`, {
           method: 'POST',
           headers: HEADERS,
@@ -170,7 +198,7 @@ export default function App() {
         });
         const sellData = await resSell.json();
         if (resSell.ok) {
-          pendingSales[symbolKey] = { qty, price: buyPrice, limitPrice };
+          pendingSales[symbolKey] = { qty: filledQty, price: avgPrice, limitPrice };
           Alert.alert('✅ Sell Placed', `Limit sell for ${symbol} at $${limitPrice}`);
           console.log('✅ Sell order success:', sellData);
         } else {
