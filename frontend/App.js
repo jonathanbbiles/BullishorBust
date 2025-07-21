@@ -31,6 +31,7 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [autoTrade, setAutoTrade] = useState(false);
+  const [accountCash, setAccountCash] = useState(0);
 
   const calcRSI = (closes, period = 14) => {
     if (closes.length < period + 1) return null;
@@ -89,7 +90,7 @@ export default function App() {
     try {
       const cash = await fetchAccountCash();
       if (cash < MIN_ORDER_COST) {
-        Alert.alert('Insufficient funds for Alpaca minimum order.');
+        Alert.alert('Buy Skipped: Available cash is below $10 minimum.');
         return;
       }
 
@@ -101,7 +102,7 @@ export default function App() {
       const buyPrice = (price * 1.005).toFixed(2);
       const orderCost = qty * parseFloat(buyPrice);
       if (orderCost < MIN_ORDER_COST) {
-        Alert.alert('Buy Failed: Alpaca requires orders to be at least $10 total.');
+        Alert.alert('Buy Skipped: Order must be at least $10.');
         return;
       }
 
@@ -173,6 +174,8 @@ export default function App() {
       setRefreshing(false);
       return;
     }
+    const cash = await fetchAccountCash();
+    setAccountCash(cash);
     const results = await Promise.all(
       tracked.map(async asset => {
         try {
@@ -218,7 +221,17 @@ export default function App() {
           const watchlist = macdBullish && !entryReady;
 
           if (entryReady && autoTrade) {
-            await placeOrder(asset.symbol, price);
+            let qty = 1;
+            if (cash < price) {
+              qty = parseFloat((cash / price).toFixed(6));
+            }
+            const buyPrice = price * 1.005;
+            const orderCost = qty * buyPrice;
+            if (cash >= MIN_ORDER_COST && orderCost >= MIN_ORDER_COST) {
+              await placeOrder(asset.symbol, price);
+            } else {
+              console.log(`Auto-buy skipped for ${asset.symbol}: order under $${MIN_ORDER_COST}`);
+            }
           }
 
           return {
@@ -266,6 +279,13 @@ export default function App() {
 
   const renderCard = (asset) => {
     const borderColor = asset.entryReady ? 'green' : asset.watchlist ? '#FFA500' : 'red';
+    const buyPrice = asset.price * 1.005;
+    let qty = 1;
+    if (accountCash < asset.price) {
+      qty = parseFloat((accountCash / asset.price).toFixed(6));
+    }
+    const projectedCost = qty * buyPrice;
+    const canBuy = accountCash >= MIN_ORDER_COST && projectedCost >= MIN_ORDER_COST;
     return (
       <View key={asset.symbol} style={[styles.card, { borderLeftColor: borderColor }]}>
         <Text style={styles.symbol}>{asset.name} ({asset.symbol})</Text>
@@ -277,8 +297,8 @@ export default function App() {
             <Text>RSI: {asset.rsi} | MACD: {asset.macd} | Signal: {asset.signal}</Text>
             <Text>Trend: {asset.trend}</Text>
             <Text>{asset.time}</Text>
-            <TouchableOpacity onPress={() => placeOrder(asset.symbol, asset.price)}>
-              <Text style={styles.buyButton}>Manual BUY</Text>
+            <TouchableOpacity onPress={() => placeOrder(asset.symbol, asset.price)} disabled={!canBuy}>
+              <Text style={[styles.buyButton, !canBuy && styles.buyButtonDisabled]}>Manual BUY</Text>
             </TouchableOpacity>
           </>
         )}
@@ -320,4 +340,5 @@ const styles = StyleSheet.create({
   symbol: { fontSize: 15, fontWeight: 'bold', color: '#005eff' },
   error: { color: 'red', fontSize: 12 },
   buyButton: { color: '#0066cc', marginTop: 8, fontWeight: 'bold' },
+  buyButtonDisabled: { color: '#999', marginTop: 8, fontWeight: 'bold' },
 });
