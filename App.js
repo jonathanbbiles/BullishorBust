@@ -15,20 +15,11 @@ const HEADERS = {
   'Content-Type': 'application/json'
 };
 
-const ORIGINAL_TOKENS = [
-  { name: 'UNI', symbol: 'UNI' }, { name: 'LINK', symbol: 'LINK' },
-  { name: 'LTC', symbol: 'LTC' }, { name: 'BCH', symbol: 'BCH' },
-  { name: 'ETC', symbol: 'ETC' }, { name: 'AVAX', symbol: 'AVAX' },
-  { name: 'SOL', symbol: 'SOL' }, { name: 'XTZ', symbol: 'XTZ' },
-  { name: 'COMP', symbol: 'COMP' }, { name: 'AAVE', symbol: 'AAVE' },
-  { name: 'ADA', symbol: 'ADA' }, { name: 'DOGE', symbol: 'DOGE' },
-  { name: 'BTC', symbol: 'BTC' }, { name: 'ETH', symbol: 'ETH' },
-  { name: 'XLM', symbol: 'XLM' }, { name: 'ZRX', symbol: 'ZRX' },
-  { name: 'SHIB', symbol: 'SHIB' }, { name: 'MATIC', symbol: 'MATIC' },
-];
+const DATA_BASE_URL = 'https://data.alpaca.markets/v1beta1/crypto';
 
 export default function App() {
-  const [tracked] = useState(ORIGINAL_TOKENS);
+  const [tracked, setTracked] = useState([]);
+  const [assetError, setAssetError] = useState(null);
   const [data, setData] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
@@ -129,20 +120,91 @@ export default function App() {
     }
   };
 
+  const loadAssets = async () => {
+    try {
+      const res = await fetch(
+        `${ALPACA_BASE_URL}/assets?status=active&asset_class=crypto`,
+        { headers: HEADERS }
+      );
+      const assets = await res.json();
+      const tradables = assets.filter(a => a.class === 'crypto' && a.tradable);
+      const symbols = tradables.map(a => a.symbol).join(',');
+
+      const snapRes = await fetch(
+        `${DATA_BASE_URL}/bars?symbols=${symbols}&timeframe=1Day&limit=1`,
+        { headers: HEADERS }
+      );
+      const snapData = await snapRes.json();
+
+      const ranked = await Promise.all(
+        tradables.map(async a => {
+          const info = snapData[a.symbol] && snapData[a.symbol][0];
+          if (info) {
+            const vol = info.v || 0;
+            const volat = info.h && info.l ? (info.h - info.l) / info.c : 0;
+            return { name: a.name, symbol: a.symbol, vol, volat };
+          }
+          try {
+            const barsRes = await fetch(
+              `${DATA_BASE_URL}/bars?symbols=${a.symbol}&timeframe=15Min&limit=5`,
+              { headers: HEADERS }
+            );
+            const barsData = await barsRes.json();
+            const bars = barsData[a.symbol] || [];
+            const highs = bars.map(b => b.h || 0);
+            const lows = bars.map(b => b.l || 0);
+            const closes = bars.map(b => b.c || 0);
+            const hi = Math.max(...highs);
+            const lo = Math.min(...lows);
+            const last = closes.at(-1) || 1;
+            const volat = hi && lo ? (hi - lo) / last : 0;
+            return { name: a.name, symbol: a.symbol, vol: 0, volat };
+          } catch {
+            return { name: a.name, symbol: a.symbol, vol: 0, volat: 0 };
+          }
+        })
+      );
+
+      ranked.sort((b, a) => (a.vol || a.volat) - (b.vol || b.volat));
+      setTracked(ranked.slice(0, 20));
+      setAssetError(null);
+    } catch (err) {
+      console.error('asset load failed', err);
+      setAssetError('Unable to load assets from Alpaca');
+    }
+  };
+
   const loadData = async () => {
+    if (tracked.length === 0) {
+      setData([]);
+      setRefreshing(false);
+      return;
+    }
     const results = await Promise.all(
       tracked.map(async asset => {
         try {
+          const pair = asset.symbol.toUpperCase();
+          const isUsd = pair.endsWith('USD') || pair.endsWith('/USD');
+          if (!isUsd) {
+            return { ...asset, error: 'Unsupported pair' };
+          }
+          const base = pair.replace('/USD', '').replace('USD', '');
+
           const priceRes = await fetch(
-            `https://min-api.cryptocompare.com/data/price?fsym=${asset.symbol}&tsyms=USD`
+            `https://min-api.cryptocompare.com/data/price?fsym=${base}&tsyms=USD`
           );
           const priceData = await priceRes.json();
           const price = priceData.USD;
 
           const histoRes = await fetch(
-            `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${asset.symbol}&tsym=USD&limit=52&aggregate=15`
+            `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${base}&tsym=USD&limit=52&aggregate=15`
           );
           const histoData = await histoRes.json();
+
+          if (!histoData?.Data || !histoData.Data?.Data) {
+            return { ...asset, error: 'No historical data' };
+          }
+
           const closes = histoData.Data.Data.map(bar => bar.close);
 
           const rsi = calcRSI(closes);
@@ -152,10 +214,15 @@ export default function App() {
 
           const macdBullish = macd > signal;
           const rsiRising = rsi > prevRsi;
-          const rsiOK = rsi >= 30;
+          const rsiBelow70 = rsi < 70;
           const trendOK = trend === '⬆️' || trend === '🟰';
+          const last5 = closes.slice(-5);
+          const volRange = Math.max(...last5) - Math.min(...last5);
+          const lowVol = volRange / last5.at(-1) < 0.02;
+          const underBreakout = asset.symbol !== 'DOGE' || price < 0.255;
 
-          const entryReady = macdBullish && rsiRising && rsiOK && trendOK;
+          const entryReady =
+            macdBullish && rsiRising && rsiBelow70 && trendOK && lowVol && underBreakout;
           const watchlist = macdBullish && !entryReady;
 
           if (entryReady && autoTrade) {
@@ -185,13 +252,21 @@ export default function App() {
   };
 
   useEffect(() => {
+    loadAssets();
+    const assetInterval = setInterval(loadAssets, 3600000);
+    return () => clearInterval(assetInterval);
+  }, []);
+
+  useEffect(() => {
+    if (tracked.length === 0) return;
     loadData();
     const interval = setInterval(loadData, 60000);
     return () => clearInterval(interval);
-  }, [autoTrade]);
+  }, [tracked, autoTrade]);
 
   const onRefresh = () => {
     setRefreshing(true);
+    loadAssets();
     loadData();
   };
 
@@ -227,6 +302,7 @@ export default function App() {
         <Text style={[styles.title, darkMode && styles.titleDark]}>🎭 Bullish or Bust!</Text>
         <Switch value={autoTrade} onValueChange={setAutoTrade} />
       </View>
+      {assetError && <Text style={styles.error}>{assetError}</Text>}
       <View style={styles.cardGrid}>{data.map(renderCard)}</View>
     </ScrollView>
   );
