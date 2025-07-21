@@ -1,5 +1,5 @@
 // Bullish or Bust! – Alpaca Integrated Trading App
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, Switch, Alert
@@ -32,6 +32,7 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(false);
   const [autoTrade, setAutoTrade] = useState(false);
   const [accountCash, setAccountCash] = useState(0);
+  const pendingSalesRef = useRef({});
 
   const calcRSI = (closes, period = 14) => {
     if (closes.length < period + 1) return null;
@@ -127,35 +128,41 @@ export default function App() {
       if (res.ok) {
         Alert.alert('✅ Buy Success', `Order placed for ${symbol} at $${buyPrice}`);
         console.log('✅ Order success:', buyData);
+        console.log(`Buy order filled for ${symbol}: qty ${qty}, price ${buyPrice}`);
 
-        // check current position before placing a sell order
-        const posRes = await fetch(`${ALPACA_BASE_URL}/positions/${symbol}`, { headers: HEADERS });
-        let sellQty = qty;
-        if (posRes.ok) {
-          const posData = await posRes.json();
-          const available = Math.floor(parseFloat(posData.qty_available) * 1e6) / 1e6;
-          if (!available || available <= 0) {
-            console.log(`No available balance for ${symbol}, skipping sell.`);
-            return;
+        const symbolKey = symbol.replace('/', '');
+
+        // cancel any existing open sell orders for this symbol
+        try {
+          const openRes = await fetch(`${ALPACA_BASE_URL}/orders?status=open&symbols=${symbolKey}`, { headers: HEADERS });
+          if (openRes.ok) {
+            const openOrders = await openRes.json();
+            for (const o of openOrders) {
+              if (o.side === 'sell') {
+                await fetch(`${ALPACA_BASE_URL}/orders/${o.id}`, { method: 'DELETE', headers: HEADERS });
+              }
+            }
           }
-          if (sellQty > available) {
-            console.log(`Adjusting sell qty from ${sellQty} to available ${available}`);
-            sellQty = available;
-          }
-        } else {
-          console.log(`No available balance for ${symbol}, skipping sell.`);
+        } catch(err) {
+          console.error('Error cancelling existing sell orders:', err);
+        }
+
+        const limitPrice = parseFloat((buyPrice * 1.005).toFixed(5));
+        const sellValue = qty * limitPrice;
+        if (sellValue < MIN_ORDER_COST) {
+          console.log(`Sell order for ${symbol} skipped: value < $10`);
           return;
         }
 
-        const sellPrice = (parseFloat(buyPrice) * 1.005).toFixed(2); // 0.5% profit target
         const sellOrder = {
           symbol,
-          qty: parseFloat(sellQty.toFixed(6)),
+          qty: parseFloat(qty.toFixed(6)),
           side: 'sell',
           type: 'limit',
           time_in_force: 'gtc',
-          limit_price: sellPrice
+          limit_price: limitPrice
         };
+        console.log(`Placing sell for ${symbol}: buy ${buyPrice} qty ${qty} limit ${limitPrice}`);
         const resSell = await fetch(`${ALPACA_BASE_URL}/orders`, {
           method: 'POST',
           headers: HEADERS,
@@ -163,7 +170,8 @@ export default function App() {
         });
         const sellData = await resSell.json();
         if (resSell.ok) {
-          Alert.alert('✅ Sell Placed', `Limit sell for ${symbol} at $${sellPrice}`);
+          pendingSalesRef.current[symbolKey] = { qty, price: buyPrice, limitPrice };
+          Alert.alert('✅ Sell Placed', `Limit sell for ${symbol} at $${limitPrice}`);
           console.log('✅ Sell order success:', sellData);
         } else {
           Alert.alert('❌ Sell Failed', sellData.message || 'Unknown error');
