@@ -95,7 +95,7 @@ export default function App() {
         Alert.alert('✅ Buy Success', `Order placed for ${symbol} at $${buyPrice}`);
         console.log('✅ Order success:', buyData);
 
-        const sellPrice = (parseFloat(buyPrice) * 1.005).toFixed(2);
+        const sellPrice = (parseFloat(buyPrice) * 1.0025).toFixed(2);
         const sellOrder = {
           symbol,
           qty,
@@ -174,13 +174,11 @@ export default function App() {
           const closes = bars.map(bar => bar.close).filter(c => c != null);
 
           const rsi = calcRSI(closes);
-          const prevRsi = calcRSI(closes.slice(0, -1));
           const { macd, signal } = calcMACD(closes);
           const trend = getTrendSymbol(closes);
 
           const macdBullish = macd > signal;
-          const rsiRising = rsi > prevRsi;
-          const rsiBelow70 = rsi < 70;
+          const rsiOK = rsi >= 30 && rsi < 70;
           const trendOK = trend === '⬆️' || trend === '🟰';
           const last5 = closes.slice(-5);
           const volRange = Math.max(...last5) - Math.min(...last5);
@@ -188,7 +186,7 @@ export default function App() {
           const underBreakout = asset.symbol !== 'DOGE' || price < 0.255;
 
           const entryReady =
-            macdBullish && rsiRising && rsiBelow70 && trendOK && lowVol && underBreakout;
+            macdBullish && rsiOK && trendOK && lowVol && underBreakout;
           const watchlist = macdBullish && !entryReady;
 
           if (entryReady && autoTrade) {
