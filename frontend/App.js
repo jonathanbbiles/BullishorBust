@@ -131,42 +131,51 @@ export default function App() {
       const symbols = tradables.map(a => a.symbol).join(',');
 
       const snapRes = await fetch(
-        `${DATA_BASE_URL}/bars?symbols=${symbols}&timeframe=1Day&limit=1`,
+        `${DATA_BASE_URL}/snapshots?symbols=${symbols}`,
         { headers: HEADERS }
       );
       const snapData = await snapRes.json();
 
       const ranked = await Promise.all(
         tradables.map(async a => {
-          const info = snapData[a.symbol] && snapData[a.symbol][0];
-          if (info) {
-            const vol = info.v || 0;
-            const volat = info.h && info.l ? (info.h - info.l) / info.c : 0;
-            return { name: a.name, symbol: a.symbol, vol, volat };
+          let bar = snapData[a.symbol]?.latestBar || null;
+
+          if (!bar) {
+            try {
+              const barsRes = await fetch(
+                `${DATA_BASE_URL}/bars?symbols=${a.symbol}&timeframe=15Min&limit=1`,
+                { headers: HEADERS }
+              );
+              const barsData = await barsRes.json();
+              bar = barsData[a.symbol]?.[0] || null;
+            } catch {
+              bar = null;
+            }
           }
-          try {
-            const barsRes = await fetch(
-              `${DATA_BASE_URL}/bars?symbols=${a.symbol}&timeframe=15Min&limit=5`,
-              { headers: HEADERS }
-            );
-            const barsData = await barsRes.json();
-            const bars = barsData[a.symbol] || [];
-            const highs = bars.map(b => b.h || 0);
-            const lows = bars.map(b => b.l || 0);
-            const closes = bars.map(b => b.c || 0);
-            const hi = Math.max(...highs);
-            const lo = Math.min(...lows);
-            const last = closes.at(-1) || 1;
-            const volat = hi && lo ? (hi - lo) / last : 0;
-            return { name: a.name, symbol: a.symbol, vol: 0, volat };
-          } catch {
-            return { name: a.name, symbol: a.symbol, vol: 0, volat: 0 };
+
+          if (!bar || bar.h == null || bar.l == null || bar.c == null) {
+            console.log('Skipping asset due to missing bar data:', a.symbol);
+            return null;
           }
+
+          const volume = bar.v || 0;
+          const volat = (bar.h - bar.l) / bar.c;
+          if (!volume || !isFinite(volat)) {
+            console.log('Skipping asset due to invalid data:', a.symbol);
+            return null;
+          }
+
+          return { name: a.name, symbol: a.symbol, vol: volume, volat };
         })
       );
 
-      ranked.sort((b, a) => (a.vol || a.volat) - (b.vol || b.volat));
-      setTracked(ranked.slice(0, 20));
+      const valid = ranked.filter(Boolean).sort((a, b) => b.volat - a.volat);
+
+      if (valid.length < 10) {
+        Alert.alert('Data Issue', `Only ${valid.length} assets have valid volatility`);
+      }
+
+      setTracked(valid.slice(0, 20));
       setAssetError(null);
     } catch (err) {
       console.error('asset load failed', err);
