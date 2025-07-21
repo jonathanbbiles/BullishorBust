@@ -193,6 +193,11 @@ export default function App() {
             `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${asset.symbol}&tsym=USD&limit=52&aggregate=15`
           );
           const histoData = await histoRes.json();
+
+          if (!histoData?.Data || !histoData.Data?.Data) {
+            return { ...asset, error: 'No historical data' };
+          }
+
           const closes = histoData.Data.Data.map(bar => bar.close);
 
           const rsi = calcRSI(closes);
