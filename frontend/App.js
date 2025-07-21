@@ -17,6 +17,14 @@ const HEADERS = {
 
 const DATA_BASE_URL = 'https://data.alpaca.markets/v1beta1/crypto';
 
+// Default list of 20 USD crypto pairs
+const DEFAULT_TOKENS = [
+  'BTC/USD', 'ETH/USD', 'SOL/USD', 'LTC/USD', 'BCH/USD',
+  'AVAX/USD', 'DOGE/USD', 'ADA/USD', 'LINK/USD', 'MATIC/USD',
+  'UNI/USD', 'ATOM/USD', 'XLM/USD', 'AAVE/USD', 'ALGO/USD',
+  'ETC/USD', 'EOS/USD', 'FIL/USD', 'NEAR/USD', 'XTZ/USD'
+];
+
 export default function App() {
   const [tracked, setTracked] = useState([]);
   const [assetError, setAssetError] = useState(null);
@@ -127,7 +135,9 @@ export default function App() {
         { headers: HEADERS }
       );
       const assets = await res.json();
-      const tradables = assets.filter(a => a.class === 'crypto' && a.tradable);
+      const tradables = assets.filter(
+        a => a.tradable && DEFAULT_TOKENS.includes(a.symbol)
+      );
       const symbols = tradables.map(a => a.symbol).join(',');
 
       const snapRes = await fetch(
@@ -178,25 +188,13 @@ export default function App() {
       let ranked = await Promise.all(tradables.map(calcVol));
       let valid = ranked.filter(Boolean).sort((a, b) => b.volat - a.volat);
 
-      if (valid.length < 10) {
-        const fallback = ['BTC/USD', 'ETH/USD', 'DOGE/USD', 'SOL/USD', 'LTC/USD', 'BCH/USD'];
-        const missing = fallback.filter(sym => !valid.some(v => v.symbol === sym));
-        for (const sym of missing) {
-          const extra = tradables.find(t => t.symbol === sym);
-          if (!extra) continue;
-          const result = await calcVol(extra);
-          if (result) valid.push(result);
-          if (valid.length >= 10) break;
-        }
-        console.log('Using fallback assets:', missing);
-      }
-
-      if (valid.length < 10) {
-        Alert.alert('Data Issue', `Only ${valid.length} assets have valid volatility`);
+      if (valid.length === 0) {
+        setAssetError('No crypto assets with valid volatility');
+      } else {
+        setAssetError(null);
       }
 
       setTracked(valid.slice(0, 20));
-      setAssetError(null);
     } catch (err) {
       console.error('asset load failed', err);
       setAssetError('Unable to load assets from Alpaca');
