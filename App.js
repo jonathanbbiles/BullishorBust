@@ -127,46 +127,98 @@ export default function App() {
         { headers: HEADERS }
       );
       const assets = await res.json();
-      const tradables = assets.filter(a => a.class === 'crypto' && a.tradable);
+      const tradables = assets.filter(
+        a => a.class === 'crypto' && a.tradable && /\/USD$/.test(a.symbol)
+      );
       const symbols = tradables.map(a => a.symbol).join(',');
 
       const snapRes = await fetch(
-        `${DATA_BASE_URL}/bars?symbols=${symbols}&timeframe=1Day&limit=1`,
+        `${DATA_BASE_URL}/snapshots?symbols=${symbols}`,
         { headers: HEADERS }
       );
       const snapData = await snapRes.json();
 
-      const ranked = await Promise.all(
-        tradables.map(async a => {
-          const info = snapData[a.symbol] && snapData[a.symbol][0];
-          if (info) {
-            const vol = info.v || 0;
-            const volat = info.h && info.l ? (info.h - info.l) / info.c : 0;
-            return { name: a.name, symbol: a.symbol, vol, volat };
-          }
+      const volCache = {};
+      const calcVol = async asset => {
+        if (volCache.hasOwnProperty(asset.symbol)) return volCache[asset.symbol];
+
+        let bar = snapData[asset.symbol]?.latestBar || null;
+
+        // fallback to bars endpoint when snapshot data is missing
+        if (!bar) {
           try {
             const barsRes = await fetch(
-              `${DATA_BASE_URL}/bars?symbols=${a.symbol}&timeframe=15Min&limit=5`,
+              `${DATA_BASE_URL}/bars?symbols=${asset.symbol}&timeframe=15Min&limit=1`,
               { headers: HEADERS }
             );
             const barsData = await barsRes.json();
-            const bars = barsData[a.symbol] || [];
-            const highs = bars.map(b => b.h || 0);
-            const lows = bars.map(b => b.l || 0);
-            const closes = bars.map(b => b.c || 0);
-            const hi = Math.max(...highs);
-            const lo = Math.min(...lows);
-            const last = closes.at(-1) || 1;
-            const volat = hi && lo ? (hi - lo) / last : 0;
-            return { name: a.name, symbol: a.symbol, vol: 0, volat };
+            bar = barsData[asset.symbol]?.[0] || null;
           } catch {
-            return { name: a.name, symbol: a.symbol, vol: 0, volat: 0 };
+            bar = null;
           }
-        })
-      );
+        }
 
-      ranked.sort((b, a) => (a.vol || a.volat) - (b.vol || b.volat));
-      setTracked(ranked.slice(0, 20));
+        if (!bar) {
+          console.log('SKIP: no bar data', asset.symbol); // asset skipped due to missing bars
+          volCache[asset.symbol] = null;
+          return null;
+        }
+
+        const high = Number(bar.h);
+        const low = Number(bar.l);
+        const close = Number(bar.c);
+
+        if (!isFinite(high) || !isFinite(low) || !isFinite(close) || close === 0) {
+          console.log('SKIP: invalid numbers', asset.symbol); // data invalid
+          volCache[asset.symbol] = null;
+          return null;
+        }
+
+        if (high === low && low === close) {
+          console.log('SKIP: volatility = 0', asset.symbol); // no volatility
+          volCache[asset.symbol] = null;
+          return null;
+        }
+
+        const volatility = (high - low) / close;
+        if (!isFinite(volatility) || volatility <= 0) {
+          console.log('SKIP: volatility = 0', asset.symbol);
+          volCache[asset.symbol] = null;
+          return null;
+        }
+
+        const result = { name: asset.name, symbol: asset.symbol, volat: volatility };
+        volCache[asset.symbol] = result;
+        return result;
+      };
+
+      await Promise.all(tradables.map(calcVol));
+      let valid = Object.values(volCache)
+        .filter(Boolean)
+        .sort((a, b) => b.volat - a.volat);
+
+      if (valid.length < 10) {
+        console.log('Too few valid assets, attempting fallback list');
+        const fallback = ['BTC/USD', 'ETH/USD', 'DOGE/USD', 'SOL/USD', 'LTC/USD', 'BCH/USD'];
+        for (const sym of fallback) {
+          if (valid.some(v => v.symbol === sym)) continue; // avoid duplicates
+          if (!tradables.find(t => t.symbol === sym)) {
+            console.log('SKIP: fallback asset not active', sym);
+            continue;
+          }
+          await calcVol(tradables.find(t => t.symbol === sym));
+          valid = Object.values(volCache)
+            .filter(Boolean)
+            .sort((a, b) => b.volat - a.volat);
+          if (valid.length >= 10) break;
+        }
+      }
+
+      if (valid.length < 10) {
+        Alert.alert('Limited data — fallback in use.');
+      }
+
+      setTracked(valid.slice(0, 20));
       setAssetError(null);
     } catch (err) {
       console.error('asset load failed', err);
@@ -184,28 +236,29 @@ export default function App() {
       tracked.map(async asset => {
         try {
           const pair = asset.symbol.toUpperCase();
-          const isUsd = pair.endsWith('USD') || pair.endsWith('/USD');
-          if (!isUsd) {
-            return { ...asset, error: 'Unsupported pair' };
+          const match = pair.match(/^([^\/]+)\/USD$/);
+          if (!match) {
+            return { ...asset, error: '⚠️ Not supported on CryptoCompare' };
           }
-          const base = pair.replace('/USD', '').replace('USD', '');
+          const base = match[1];
 
-          const priceRes = await fetch(
-            `https://min-api.cryptocompare.com/data/price?fsym=${base}&tsyms=USD`
-          );
+          const priceUrl = `https://min-api.cryptocompare.com/data/price?fsym=${base}&tsyms=USD`;
+          console.log('Price URL:', priceUrl);
+          const priceRes = await fetch(priceUrl);
           const priceData = await priceRes.json();
           const price = priceData.USD;
 
-          const histoRes = await fetch(
-            `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${base}&tsym=USD&limit=52&aggregate=15`
-          );
+          const histoUrl = `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${base}&tsym=USD&limit=52&aggregate=15`;
+          console.log('Histo URL:', histoUrl);
+          const histoRes = await fetch(histoUrl);
           const histoData = await histoRes.json();
 
-          if (!histoData?.Data || !histoData.Data?.Data) {
+          const bars = Array.isArray(histoData?.Data?.Data) ? histoData.Data.Data : null;
+          if (!bars || bars.length < 20) {
             return { ...asset, error: 'No historical data' };
           }
 
-          const closes = histoData.Data.Data.map(bar => bar.close);
+          const closes = bars.map(bar => bar.close).filter(c => c != null);
 
           const rsi = calcRSI(closes);
           const prevRsi = calcRSI(closes.slice(0, -1));
@@ -247,7 +300,9 @@ export default function App() {
       if (b.watchlist) return 1;
       return 0;
     });
-    setData(sorted);
+
+    const valid = sorted.filter(a => !a.error).slice(0, 20);
+    setData(valid);
     setRefreshing(false);
   };
 
