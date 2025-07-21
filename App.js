@@ -16,7 +16,6 @@ const HEADERS = {
   'Content-Type': 'application/json'
 };
 
-const DATA_BASE_URL = 'https://data.alpaca.markets/v1beta1/crypto';
 
 // Fixed list of supported USD crypto pairs for analytics display
 const DEFAULT_TOKENS = [
@@ -26,21 +25,14 @@ const DEFAULT_TOKENS = [
   "FIL/USD", "ETC/USD", "ALGO/USD", "ATOM/USD", "MKR/USD"
 ];
 
-// Official list of Alpaca tradable crypto symbols
-const ALPACA_CRYPTO = [
-  'AAVE', 'AVAX', 'BAT', 'BCH', 'BTC', 'CRV', 'DOGE', 'DOT', 'ETH',
-  'GRT', 'LINK', 'LTC', 'MKR', 'SHIB', 'SUSHI', 'UNI', 'USDC', 'USDT',
-  'XTZ', 'YFI'
-];
 
 export default function App() {
-  const pendingSales = {};
-  const [tracked, setTracked] = useState([]);
   const [data, setData] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [autoTrade, setAutoTrade] = useState(false);
   const [accountCash, setAccountCash] = useState(0);
+  const [tradableTokens, setTradableTokens] = useState([]);
 
   const calcRSI = (closes, period = 14) => {
     if (closes.length < period + 1) return null;
@@ -158,7 +150,7 @@ export default function App() {
 
   const placeOrder = async (symbol, isAuto = false) => {
     const base = symbol.split('/')[0];
-    if (!ALPACA_CRYPTO.includes(base)) {
+    if (!tradableTokens.includes(base)) {
       Alert.alert('❌ Trade Unsupported', 'Alpaca does not support buying ' + symbol);
       return;
     }
@@ -182,30 +174,30 @@ export default function App() {
 
 
 
-  const loadAssets = async () => {
-    // Map default tokens and mark whether Alpaca allows trading
-    const assets = DEFAULT_TOKENS.map(sym => {
-      const base = sym.split('/')[0];
-      return {
-        symbol: sym,
-        name: base,
-        notTradable: !ALPACA_CRYPTO.includes(base)
-      };
-    });
-    setTracked(assets);
+  const fetchTradableTokens = async () => {
+    try {
+      const res = await fetch(`${ALPACA_BASE_URL}/assets?asset_class=crypto`, { headers: HEADERS });
+      const assets = await res.json();
+      const tokens = assets
+        .filter(a => a.tradable)
+        .map(a => (a.symbol.includes('/') ? a.symbol.split('/')[0] : a.symbol.replace('USD', '')));
+      setTradableTokens(tokens);
+    } catch (err) {
+      console.error('Failed to fetch tradable tokens', err);
+      setTradableTokens([]);
+    }
   };
 
 
   const loadData = async () => {
-    if (tracked.length === 0) {
-      setData([]);
-      setRefreshing(false);
-      return;
-    }
     const cash = await fetchAccountCash();
     setAccountCash(cash);
+    const assets = DEFAULT_TOKENS.map(sym => {
+      const base = sym.split('/')[0];
+      return { symbol: sym, name: base, tradable: tradableTokens.includes(base) };
+    });
     const results = await Promise.all(
-      tracked.map(async asset => {
+      assets.map(async asset => {
         try {
           const pair = asset.symbol.toUpperCase();
           const match = pair.match(/^([^\/]+)\/USD$/);
@@ -277,21 +269,19 @@ export default function App() {
   };
 
   useEffect(() => {
-    loadAssets();
-    const assetInterval = setInterval(loadAssets, 3600000);
-    return () => clearInterval(assetInterval);
+    fetchTradableTokens();
   }, []);
 
   useEffect(() => {
-    if (tracked.length === 0) return;
+    if (tradableTokens.length === 0) return;
     loadData();
     const interval = setInterval(loadData, 60000);
     return () => clearInterval(interval);
-  }, [tracked, autoTrade]);
+  }, [tradableTokens, autoTrade]);
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadAssets();
+    fetchTradableTokens();
     loadData();
   };
 
@@ -309,15 +299,15 @@ export default function App() {
           <Text style={styles.error}>Error: {asset.error}</Text>
         ) : (
           <>
-            {asset.notTradable && (
+            {!asset.tradable && (
               <Text style={styles.warning}>⚠️ Not Tradable</Text>
             )}
             <Text>Price: ${asset.price}</Text>
             <Text>RSI: {asset.rsi} | MACD: {asset.macd} | Signal: {asset.signal}</Text>
             <Text>Trend: {asset.trend}</Text>
             <Text>{asset.time}</Text>
-            <TouchableOpacity onPress={() => placeOrder(asset.symbol)} disabled={!canBuy}>
-              <Text style={[styles.buyButton, !canBuy && styles.buyButtonDisabled]}>Manual BUY</Text>
+            <TouchableOpacity onPress={() => placeOrder(asset.symbol)} disabled={!canBuy || !asset.tradable}>
+              <Text style={[styles.buyButton, (!canBuy || !asset.tradable) && styles.buyButtonDisabled]}>Manual BUY</Text>
             </TouchableOpacity>
           </>
         )}
