@@ -4,6 +4,7 @@ import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, Switch, Alert
 } from 'react-native';
+import axios from 'axios';
 
 const ALPACA_KEY = 'PKGY01ABISEXQJZX5L7M';
 const ALPACA_SECRET = 'PwJAEwLnLnsf7qAVvFutE8VIMgsAgvi7PMkMcCca';
@@ -88,7 +89,67 @@ export default function App() {
     }
   };
 
-  const placeOrder = async (symbol, price, isAuto = false) => {
+  const manualBuyAndAutoSell = async (symbol, notionalUSD, isAuto = false) => {
+    try {
+      const buyOrder = await axios.post(
+        `${ALPACA_BASE_URL}/orders`,
+        {
+          symbol,
+          notional: notionalUSD,
+          side: 'buy',
+          type: 'market',
+          time_in_force: 'gtc'
+        },
+        { headers: HEADERS }
+      );
+
+      const buyId = buyOrder.data.id;
+      console.log(`Buy submitted: ${symbol}, Order ID: ${buyId}`);
+
+      let filledOrder = null;
+      for (let i = 0; i < 20; i++) {
+        const status = await axios.get(`${ALPACA_BASE_URL}/orders/${buyId}`, { headers: HEADERS });
+        if (status.data.status === 'filled') {
+          filledOrder = status.data;
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+
+      if (!filledOrder) {
+        const msg = 'Buy order did not fill within 20 seconds.';
+        isAuto ? console.log(msg) : Alert.alert('❌ Buy Timeout', msg);
+        return;
+      }
+
+      const qty = filledOrder.filled_qty;
+      const avgPrice = parseFloat(filledOrder.filled_avg_price);
+      const limitPrice = (avgPrice * 1.005).toFixed(2);
+
+      const sellOrder = await axios.post(
+        `${ALPACA_BASE_URL}/orders`,
+        {
+          symbol,
+          qty,
+          side: 'sell',
+          type: 'limit',
+          limit_price: limitPrice,
+          time_in_force: 'gtc'
+        },
+        { headers: HEADERS }
+      );
+
+      const message = `Sell order placed: ${qty} ${symbol} at $${limitPrice}`;
+      isAuto ? console.log(message) : Alert.alert('✅ Sell Placed', message);
+      console.log(message);
+    } catch (err) {
+      console.error('Trade Error:', err.response?.data || err.message);
+      const msg = err.response?.data?.message || err.message;
+      isAuto ? console.log(msg) : Alert.alert('❌ Trade Error', msg);
+    }
+  };
+
+  const placeOrder = async (symbol, isAuto = false) => {
     try {
       const cash = await fetchAccountCash();
       const tradeDollars = cash * TRADE_FRACTION;
@@ -99,118 +160,10 @@ export default function App() {
         isAuto ? console.log(msg) : Alert.alert(msg);
         return;
       }
-
-      const buyPrice = parseFloat((price * 1.005).toFixed(2));
-      const qty = parseFloat((tradeDollars / buyPrice).toFixed(6));
-      const orderCost = qty * buyPrice;
-      if (orderCost < MIN_ORDER_COST) {
-        const msg = isAuto
-          ? 'Skipped auto-buy: Trade size <$10.'
-          : 'Buy Skipped: Alpaca requires $10 minimum per trade.';
-        isAuto ? console.log(msg) : Alert.alert(msg);
-        return;
-      }
-
-      const order = {
-        symbol,
-        qty,
-        side: 'buy',
-        type: 'limit',
-        time_in_force: 'gtc',
-        limit_price: buyPrice
-      };
-      const res = await fetch(`${ALPACA_BASE_URL}/orders`, {
-        method: 'POST',
-        headers: HEADERS,
-        body: JSON.stringify(order)
-      });
-      const buyData = await res.json();
-      if (res.ok) {
-        Alert.alert('✅ Buy Success', `Order placed for ${symbol} at $${buyPrice}`);
-        console.log('✅ Order success:', buyData);
-        const orderId = buyData.id;
-        const waitForFill = async (id, retries = 30, delay = 2000) => {
-          for (let i = 0; i < retries; i++) {
-            try {
-              const resp = await fetch(`${ALPACA_BASE_URL}/orders/${id}`, { headers: HEADERS });
-              if (resp.ok) {
-                const data = await resp.json();
-                if (data.status === 'filled') return data;
-              }
-            } catch (err) {
-              console.error('Error checking order status:', err);
-            }
-            await new Promise(resolve => setTimeout(resolve, delay));
-          }
-          throw new Error('Buy order not filled in time');
-        };
-
-        let filled;
-        try {
-          filled = await waitForFill(orderId);
-        } catch (err) {
-          console.error('❌ Fill wait error:', err);
-          isAuto ? console.log(err.message) : Alert.alert('❌ Buy Fill Error', err.message);
-          return;
-        }
-
-        const filledQty = parseFloat(filled.filled_qty);
-        const avgPrice = parseFloat(filled.filled_avg_price);
-        console.log(`Buy filled for ${symbol}: qty ${filledQty} avg ${avgPrice}`);
-
-        const symbolKey = symbol.replace('/', '');
-
-        // cancel any existing open sell orders for this symbol
-        try {
-          const openRes = await fetch(`${ALPACA_BASE_URL}/orders?status=open&symbols=${symbol}`, { headers: HEADERS });
-          if (openRes.ok) {
-            const openOrders = await openRes.json();
-            for (const o of openOrders) {
-              if (o.side === 'sell') {
-                await fetch(`${ALPACA_BASE_URL}/orders/${o.id}`, { method: 'DELETE', headers: HEADERS });
-              }
-            }
-          }
-        } catch(err) {
-          console.error('Error cancelling existing sell orders:', err);
-        }
-
-        const limitPrice = parseFloat((avgPrice * 1.0025).toFixed(5));
-        const sellValue = filledQty * limitPrice;
-        if (sellValue < MIN_ORDER_COST) {
-          console.log(`Sell order for ${symbol} skipped: value < $10`);
-          return;
-        }
-
-        const sellOrder = {
-          symbol,
-          qty: parseFloat(filledQty.toFixed(6)),
-          side: 'sell',
-          type: 'limit',
-          time_in_force: 'gtc',
-          limit_price: limitPrice
-        };
-        console.log(`Placing sell for ${symbol}: qty ${filledQty} limit ${limitPrice}`);
-        const resSell = await fetch(`${ALPACA_BASE_URL}/orders`, {
-          method: 'POST',
-          headers: HEADERS,
-          body: JSON.stringify(sellOrder)
-        });
-        const sellData = await resSell.json();
-        if (resSell.ok) {
-          pendingSales[symbolKey] = { qty: filledQty, price: avgPrice, limitPrice };
-          Alert.alert('✅ Sell Placed', `Limit sell for ${symbol} at $${limitPrice}`);
-          console.log('✅ Sell order success:', sellData);
-        } else {
-          Alert.alert('❌ Sell Failed', sellData.message || 'Unknown error');
-          console.error('❌ Sell order failed:', sellData);
-        }
-      } else {
-        Alert.alert('❌ Buy Failed', buyData.message || 'Unknown error');
-        console.error('❌ Order failed:', buyData);
-      }
+      const notional = parseFloat(tradeDollars.toFixed(2));
+      await manualBuyAndAutoSell(symbol, notional, isAuto);
     } catch (err) {
-      Alert.alert('❌ Order Error', err.message);
+      isAuto ? console.log(err.message) : Alert.alert('❌ Order Error', err.message);
       console.error('❌ Order error:', err);
     }
   };
@@ -280,7 +233,7 @@ export default function App() {
           const watchlist = macdBullish && !entryReady;
 
           if (entryReady && autoTrade) {
-            await placeOrder(asset.symbol, price, true);
+            await placeOrder(asset.symbol, true);
           }
 
           return {
@@ -344,7 +297,7 @@ export default function App() {
             <Text>RSI: {asset.rsi} | MACD: {asset.macd} | Signal: {asset.signal}</Text>
             <Text>Trend: {asset.trend}</Text>
             <Text>{asset.time}</Text>
-            <TouchableOpacity onPress={() => placeOrder(asset.symbol, asset.price)} disabled={!canBuy}>
+            <TouchableOpacity onPress={() => placeOrder(asset.symbol)} disabled={!canBuy}>
               <Text style={[styles.buyButton, !canBuy && styles.buyButtonDisabled]}>Manual BUY</Text>
             </TouchableOpacity>
           </>

@@ -14,3 +14,9 @@ node backend/trade.js BTC/USD 10
 
 This example buys $10 worth of BTC and immediately places a limit sell once the
 buy fills.
+
+## In-App Manual Trading
+
+The React Native app now uses a `manualBuyAndAutoSell` helper that submits a
+market buy, waits up to 20 seconds for it to fill, and then places a limit sell
+0.5% above the fill price using the actual filled quantity.
