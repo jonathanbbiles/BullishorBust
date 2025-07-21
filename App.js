@@ -17,9 +17,16 @@ const HEADERS = {
 
 const DATA_BASE_URL = 'https://data.alpaca.markets/v1beta1/crypto';
 
+// Fixed list of supported USD crypto pairs
+const DEFAULT_TOKENS = [
+  "BTC/USD", "ETH/USD", "SOL/USD", "LTC/USD", "BCH/USD",
+  "AVAX/USD", "DOGE/USD", "ADA/USD", "LINK/USD", "MATIC/USD",
+  "UNI/USD", "ATOM/USD", "XLM/USD", "AAVE/USD", "ALGO/USD",
+  "ETC/USD", "EOS/USD", "FIL/USD", "NEAR/USD", "XTZ/USD"
+];
+
 export default function App() {
   const [tracked, setTracked] = useState([]);
-  const [assetError, setAssetError] = useState(null);
   const [data, setData] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
@@ -120,139 +127,17 @@ export default function App() {
     }
   };
 
-  // Helper to fetch active crypto assets from Alpaca
-  const fetchAlpacaAssets = async () => {
-    const res = await fetch(
-      `${ALPACA_BASE_URL}/assets?status=active&asset_class=crypto`,
-      { headers: HEADERS }
-    );
-    return res.json();
-  };
 
-  // Helper to fetch snapshot data for a symbol
-  const fetchSnapshot = async (symbol) => {
-    try {
-      const res = await fetch(
-        `${DATA_BASE_URL}/snapshots?symbols=${symbol}`,
-        { headers: HEADERS }
-      );
-      const data = await res.json();
-      return data?.[symbol] || null;
-    } catch (err) {
-      console.error(`fetchSnapshot failed for ${symbol}:`, err);
-      return null;
-    }
-  };
-
-  // Helper to fetch the last 30 minutes of bars for a symbol
-  const fetchBars = async (symbol) => {
-    try {
-      const res = await fetch(
-        `${DATA_BASE_URL}/bars?symbols=${symbol}&timeframe=15Min&limit=30`,
-        { headers: HEADERS }
-      );
-      const json = await res.json();
-      const bars = json?.[symbol];
-      return Array.isArray(bars) ? bars : [];
-    } catch (err) {
-      console.error(`fetchBars error for ${symbol}:`, err);
-      return [];
-    }
-  };
-
-  const FALLBACK_TOKENS = ['BTC/USD', 'ETH/USD', 'DOGE/USD', 'SOL/USD', 'AVAX/USD', 'LTC/USD', 'BCH/USD', 'MATIC/USD', 'ADA/USD', 'SHIB/USD'];
 
   const loadAssets = async () => {
-    try {
-      const alpacaAssets = await fetchAlpacaAssets();
-      const tradables = alpacaAssets
-        .filter(a => a.symbol.endsWith('/USD') && a.status === 'active' && a.tradable)
-        .map(a => a.symbol.toUpperCase());
-
-      const seen = new Set();
-      const assetVols = [];
-
-      for (const symbol of tradables) {
-        if (seen.has(symbol)) continue;
-
-        let snapshot = await fetchSnapshot(symbol);
-        let vol = await calcVolatility(symbol, snapshot);
-
-        if (vol > 0 && isFinite(vol)) {
-          assetVols.push({ symbol, vol });
-          seen.add(symbol);
-          console.log(`✅ ${symbol} – volatility = ${vol.toFixed(4)}`);
-        } else {
-          console.log(`⛔ SKIP ${symbol} – invalid or zero volatility from snapshot`);
-
-          const fallbackBars = await fetchBars(symbol);
-          vol = await calcVolatility(symbol, null, fallbackBars);
-
-          if (vol > 0 && isFinite(vol)) {
-            assetVols.push({ symbol, vol });
-            seen.add(symbol);
-            console.log(`🛟 Used fallback for ${symbol} – volatility = ${vol.toFixed(4)}`);
-          } else {
-            console.log(`❌ SKIP ${symbol} – no valid bar data`);
-          }
-        }
-
-        if (assetVols.length >= 20) break;
-      }
-
-      for (const fallback of FALLBACK_TOKENS) {
-        if (assetVols.length >= 10) break;
-        if (seen.has(fallback) || !tradables.includes(fallback)) continue;
-
-        const snapshot = await fetchSnapshot(fallback);
-        let vol = await calcVolatility(fallback, snapshot);
-
-        if (vol > 0 && isFinite(vol)) {
-          assetVols.push({ symbol: fallback, vol });
-          seen.add(fallback);
-          console.log(`🧱 Fallback token ${fallback} – volatility = ${vol.toFixed(4)}`);
-        }
-      }
-
-      if (assetVols.length < 1) {
-        Alert.alert('Data Issue\nNo assets have valid volatility');
-      }
-
-      assetVols.sort((a, b) => b.vol - a.vol);
-      const final = assetVols.slice(0, 20).map(a => a.symbol);
-      console.log(`🎯 Final Tracked:`, final);
-      setTracked(final);
-    } catch (err) {
-      console.error('loadAssets failed:', err);
-    }
+    // Use fixed list of supported tokens with simple name mapping
+    const assets = DEFAULT_TOKENS.map(sym => ({
+      symbol: sym,
+      name: sym.split('/')[0]
+    }));
+    setTracked(assets);
   };
 
-  const calcVolatility = async (symbol, snapshot, fallbackBars = null) => {
-    try {
-      let high, low, close;
-
-      if (snapshot?.dailyBar) {
-        const bar = snapshot.dailyBar;
-        high = bar.h;
-        low = bar.l;
-        close = bar.c;
-      } else if (fallbackBars && fallbackBars.length >= 2) {
-        const sorted = fallbackBars.sort((a, b) => b.t - a.t);
-        high = Math.max(...sorted.map(b => b.h));
-        low = Math.min(...sorted.map(b => b.l));
-        close = sorted[0].c;
-      } else {
-        return 0;
-      }
-
-      if (!high || !low || !close || close === 0) return 0;
-
-      return (high - low) / close;
-    } catch (err) {
-      console.error(`calcVolatility error for ${symbol}:`, err);
-      return 0;
-    }
-  };
 
   const loadData = async () => {
     if (tracked.length === 0) {
@@ -385,7 +270,6 @@ export default function App() {
         <Text style={[styles.title, darkMode && styles.titleDark]}>🎭 Bullish or Bust!</Text>
         <Switch value={autoTrade} onValueChange={setAutoTrade} />
       </View>
-      {assetError && <Text style={styles.error}>{assetError}</Text>}
       <View style={styles.cardGrid}>{data.map(renderCard)}</View>
     </ScrollView>
   );
