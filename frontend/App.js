@@ -19,14 +19,10 @@ const DATA_BASE_URL = 'https://data.alpaca.markets/v1beta1/crypto';
 
 // Default list of Alpaca supported USD crypto pairs
 const DEFAULT_TOKENS = [
-  'BTC/USD',
-  'ETH/USD',
-  'SOL/USD',
-  'LTC/USD',
-  'BCH/USD',
-  'DOGE/USD',
-  'AVAX/USD',
-  'ADA/USD',
+  'BTC/USD', 'ETH/USD', 'SOL/USD', 'LTC/USD', 'BCH/USD',
+  'DOGE/USD', 'AVAX/USD', 'ADA/USD', 'UNI/USD', 'MATIC/USD',
+  'LINK/USD', 'AAVE/USD', 'COMP/USD', 'XLM/USD', 'DOT/USD',
+  'FIL/USD', 'ETC/USD', 'ALGO/USD', 'ATOM/USD', 'MKR/USD'
 ];
 
 export default function App() {
@@ -132,29 +128,10 @@ export default function App() {
     }
   };
 
-  const loadAssets = async () => {
-    try {
-      const res = await fetch(
-        `${ALPACA_BASE_URL}/assets?status=active&asset_class=crypto`,
-        { headers: HEADERS }
-      );
-      const assets = await res.json();
-      const tradables = assets.filter(a => a.tradable && DEFAULT_TOKENS.includes(a.symbol));
-      if (tradables.length > 0) {
-        setTracked(tradables.map(a => ({ symbol: a.symbol, name: a.name })));
-        setAssetError(null);
-        return;
-      }
-    } catch (err) {
-      console.error('asset load failed', err);
-    }
-    const fallback = DEFAULT_TOKENS.map(sym => ({ symbol: sym, name: sym.split('/')[0] }));
-    setTracked(fallback);
-    if (fallback.length === 0) {
-      setAssetError('No crypto assets with valid volatility');
-    } else {
-      setAssetError(null);
-    }
+  const loadAssets = () => {
+    const assets = DEFAULT_TOKENS.map(sym => ({ symbol: sym, name: sym.split('/')[0] }));
+    setTracked(assets);
+    setAssetError(null);
   };
 
   const loadData = async () => {
@@ -251,6 +228,8 @@ export default function App() {
     });
 
     setData(sorted.slice(0, 20));
+    const noValid = sorted.every(a => !a.entryReady && !a.watchlist);
+    setAssetError(noValid ? 'No crypto assets with valid volatility' : null);
     setRefreshing(false);
   };
 
