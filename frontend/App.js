@@ -25,6 +25,7 @@ const DEFAULT_TOKENS = [
   'FIL/USD', 'ETC/USD', 'ALGO/USD', 'ATOM/USD', 'MKR/USD'
 ];
 
+
 export default function App() {
   const [tracked, setTracked] = useState([]);
   const [assetError, setAssetError] = useState(null);
@@ -32,6 +33,7 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [autoTrade, setAutoTrade] = useState(false);
+  const [tradableTokens, setTradableTokens] = useState([]);
 
   const calcRSI = (closes, period = 14) => {
     if (closes.length < period + 1) return null;
@@ -74,7 +76,27 @@ export default function App() {
     return slope > 0.02 ? '⬆️' : slope < -0.02 ? '⬇️' : '🟰';
   };
 
+  const fetchTradableTokens = async () => {
+    try {
+      const res = await fetch(`${ALPACA_BASE_URL}/assets?asset_class=crypto`, {
+        headers: HEADERS,
+      });
+      const assets = await res.json();
+      const tokens = Array.isArray(assets)
+        ? assets.filter(a => a.tradable).map(a => a.symbol)
+        : [];
+      setTradableTokens(tokens);
+    } catch (err) {
+      console.error('Failed to fetch tradable tokens', err);
+      setTradableTokens([]);
+    }
+  };
+
   const placeOrder = async (symbol, price) => {
+    if (!tradableTokens.includes(symbol)) {
+      Alert.alert('❌ Trade Unsupported', `Alpaca does not support trading ${symbol}`);
+      return;
+    }
     try {
       const qty = 1;
       const buyPrice = (price * 1.005).toFixed(2);
@@ -129,7 +151,11 @@ export default function App() {
   };
 
   const loadAssets = () => {
-    const assets = DEFAULT_TOKENS.map(sym => ({ symbol: sym, name: sym.split('/')[0] }));
+    const assets = DEFAULT_TOKENS.map(sym => ({
+      symbol: sym,
+      name: sym.split('/')[0],
+      tradable: tradableTokens.includes(sym),
+    }));
     setTracked(assets);
     setAssetError(null);
   };
@@ -234,10 +260,14 @@ export default function App() {
   };
 
   useEffect(() => {
-    loadAssets();
-    const assetInterval = setInterval(loadAssets, 3600000);
-    return () => clearInterval(assetInterval);
+    fetchTradableTokens();
+    const interval = setInterval(fetchTradableTokens, 3600000);
+    return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    loadAssets();
+  }, [tradableTokens]);
 
   useEffect(() => {
     if (tracked.length === 0) return;
@@ -248,8 +278,7 @@ export default function App() {
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadAssets();
-    loadData();
+    fetchTradableTokens();
   };
 
   const renderCard = (asset) => {
@@ -258,6 +287,7 @@ export default function App() {
       <View key={asset.symbol} style={[styles.card, { borderLeftColor: borderColor }]}>
         <Text style={styles.symbol}>{asset.name} ({asset.symbol})</Text>
         {asset.warning && <Text style={styles.warning}>{asset.warning}</Text>}
+        {!asset.tradable && <Text style={styles.warning}>⚠️ Not Tradable</Text>}
         <Text>Price: ${asset.price ?? 'N/A'}</Text>
         <Text>RSI: {asset.rsi ?? 'N/A'} | MACD: {asset.macd ?? 'N/A'} | Signal: {asset.signal ?? 'N/A'}</Text>
         <Text>Trend: {asset.trend}</Text>
