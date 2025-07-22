@@ -20,3 +20,18 @@ buy fills.
 The React Native app now uses a `manualBuyAndAutoSell` helper that submits a
 market buy, waits up to 20 seconds for it to fill, and then places a limit sell
 0.5% above the fill price using the actual filled quantity.
+
+## Running the Frontend
+
+The Expo project lives in the `frontend` folder. Install dependencies inside
+that directory before starting the app:
+
+```bash
+cd frontend
+npm install
+npx expo start
+```
+
+If you see an error like `Unable to resolve module 'axios.js'` it usually means
+the dependencies haven't been installed yet. Running the commands above should
+fix it.
