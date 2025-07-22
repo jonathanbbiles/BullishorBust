@@ -2,34 +2,17 @@ import React, { useEffect, useState } from 'react';
 import { ScrollView, View, Text, Button, StyleSheet } from 'react-native';
 import axios from 'axios';
 
-const tokens = [
-  'BTC/USD', 'ETH/USD', 'SOL/USD', 'LTC/USD',
-  'BCH/USD', 'DOGE/USD', 'AVAX/USD', 'ADA/USD'
-];
+const tokens = ['BTC/USD', 'ETH/USD'];
 
 export default function App() {
   const [entryReadyTokens, setEntryReadyTokens] = useState([]);
 
   const checkMACD = async (symbol) => {
-    // Placeholder: replace with your MACD logic or indicator API
-    return true; // simulate bullish MACD
+    return true;
   };
 
   const handleBuy = async (symbol) => {
-    try {
-      const alpacaSymbol = symbol.replace('/', '');
-      const response = await axios.post('http://localhost:3000/buy', {
-        symbol: alpacaSymbol,
-        qty: 0.01,
-        side: 'buy',
-        type: 'limit',
-        time_in_force: 'day',
-        limit_price: 100 // sample price
-      });
-      alert(`Buy order placed: ${JSON.stringify(response.data)}`);
-    } catch (error) {
-      alert('Buy error: ' + error.message);
-    }
+    alert(`Buy pressed: ${symbol}`);
   };
 
   useEffect(() => {
@@ -51,9 +34,7 @@ export default function App() {
           key={token}
           style={[
             styles.card,
-            entryReadyTokens.includes(token)
-              ? styles.entryReady
-              : styles.notReady
+            entryReadyTokens.includes(token) ? styles.entryReady : styles.notReady
           ]}
         >
           <Text style={styles.title}>{token}</Text>
