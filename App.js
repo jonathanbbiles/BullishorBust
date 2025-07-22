@@ -61,12 +61,15 @@ export default function App() {
         const rsi = Math.floor(Math.random() * 100);
         const macd = (Math.random() * 2 - 1).toFixed(2);
         const trend = rsi > 50 ? 'Bullish' : 'Bearish';
+        const entryReady =
+          rsi < 30 && parseFloat(macd) > 0 && trend === 'Bullish';
         return {
           symbol,
           price,
           rsi,
           macd,
           trend,
+          entryReady,
           tradable: tradables.includes(symbol),
         };
       })
@@ -153,6 +156,9 @@ export default function App() {
     <View style={[styles.card, { backgroundColor: theme.card }]}>
       <Text style={[styles.symbol, { color: theme.text }]}>{item.symbol}</Text>
       {!item.tradable && <Text style={styles.warning}>⚠️ Not Tradable</Text>}
+      {item.entryReady && item.tradable && (
+        <Text style={styles.ready}>✅ Entry Ready</Text>
+      )}
       <Text style={[styles.text, { color: theme.text }]}>Price: ${item.price}</Text>
       <Text style={[styles.text, { color: theme.text }]}>RSI: {item.rsi}</Text>
       <Text style={[styles.text, { color: theme.text }]}>MACD: {item.macd}</Text>
@@ -224,6 +230,11 @@ const styles = StyleSheet.create({
   },
   warning: {
     color: 'orange',
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  ready: {
+    color: 'green',
     fontWeight: 'bold',
     marginBottom: 4,
   },
