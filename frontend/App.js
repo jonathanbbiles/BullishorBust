@@ -8,6 +8,7 @@ export default function App() {
   const [entryReadyTokens, setEntryReadyTokens] = useState([]);
 
   const checkMACD = async (symbol) => {
+    // This is a placeholder: you can implement real logic using Alpaca API later
     return true;
   };
 
