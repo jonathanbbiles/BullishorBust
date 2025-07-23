@@ -143,10 +143,10 @@ export default function App() {
           const { macd, signal } = calcMACD(closes);
           const trend = getTrendSymbol(closes);
 
-          const macdBullish = macd > signal;
-          const rsiRising = rsi > prevRsi;
-          const rsiOK = rsi >= 30;
-          const trendOK = trend === '⬆️' || trend === '🟰';
+          const macdBullish = macd >= signal; // allow weak or flat crossovers
+          const rsiRising = rsi > prevRsi; // momentum must be increasing
+          const rsiOK = rsi >= 25; // allow early entries before full momentum builds
+          const trendOK = true; // ignore trend direction entirely
 
           const entryReady = macdBullish && rsiRising && rsiOK && trendOK;
           const watchlist = macdBullish && !entryReady;
