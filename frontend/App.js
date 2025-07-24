@@ -127,7 +127,15 @@ export default function App() {
         return;
       }
 
-      const qty = 1;
+      const accountRes = await fetch(`${ALPACA_BASE_URL}/account`, { headers: HEADERS });
+      const accountData = await accountRes.json();
+      const cash = parseFloat(accountData.cash || '0');
+      const qty = parseFloat((cash / price).toFixed(6));
+      if (qty <= 0) {
+        console.error('❌ Insufficient buying power');
+        return;
+      }
+
       const limit_price = price.toFixed(2);
       const order = {
         symbol,
@@ -136,6 +144,9 @@ export default function App() {
         type: 'limit',
         time_in_force: 'gtc',
         limit_price,
+        order_class: 'bracket',
+        take_profit: { limit_price: (price * 1.005).toFixed(2) },
+        stop_loss: { stop_price: (price * 0.99).toFixed(2) },
       };
 
       const res = await fetch(`${ALPACA_BASE_URL}/orders`, {
@@ -146,55 +157,11 @@ export default function App() {
       const data = await res.json();
 
       if (res.ok) {
-        Alert.alert('✅ Buy Success', `Order placed for ${symbol} at $${limit_price}`);
-        console.log('✅ Buy success:', data);
-        try {
-          const orderId = data.id;
-          let filledOrder = null;
-          for (let i = 0; i < 20; i++) {
-            const statusRes = await fetch(`${ALPACA_BASE_URL}/orders/${orderId}`, {
-              headers: HEADERS,
-            });
-            const statusData = await statusRes.json();
-            if (statusRes.ok && statusData.status === 'filled') {
-              filledOrder = statusData;
-              break;
-            }
-            await new Promise((r) => setTimeout(r, 3000));
-          }
-          if (!filledOrder) {
-            console.error('❌ Buy not filled in time');
-            return;
-          }
-          const sellQty = filledOrder.filled_qty;
-          const sellBasis = parseFloat(filledOrder.filled_avg_price || limit_price);
-          const sellOrder = {
-            symbol,
-            qty: sellQty,
-            side: 'sell',
-            type: 'limit',
-            time_in_force: 'gtc',
-            limit_price: (sellBasis * 1.005).toFixed(2),
-          };
-          const sellRes = await fetch(`${ALPACA_BASE_URL}/orders`, {
-            method: 'POST',
-            headers: HEADERS,
-            body: JSON.stringify(sellOrder),
-          });
-          const sellData = await sellRes.json();
-          if (sellRes.ok) {
-            console.log('✅ Sell order placed:', sellData);
-          } else {
-            console.error('❌ Sell failed:', sellData);
-            Alert.alert('❌ Sell Failed', sellData.message || 'Unknown error');
-          }
-        } catch (sellErr) {
-          console.error('❌ Sell error:', sellErr);
-          Alert.alert('❌ Sell Error', sellErr.message);
-        }
+        Alert.alert('✅ Buy Success', `Bracket order placed for ${symbol} at $${limit_price}`);
+        console.log('✅ Bracket order success:', data);
       } else {
-        Alert.alert('❌ Buy Failed', data.message || 'Unknown error');
-        console.error('❌ Buy failed:', data);
+        Alert.alert('❌ Order Failed', data.message || 'Unknown error');
+        console.error('❌ Order failed:', data);
       }
     } catch (err) {
       Alert.alert('❌ Order Error', err.message);
