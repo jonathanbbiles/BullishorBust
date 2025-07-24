@@ -123,7 +123,7 @@ export default function App() {
         rsi > 30 &&
         (trend === '⬆️' || trend === '🟰');
 
-      if (!shouldBuy) {
+      if (!shouldBuy && !isManual) {
         console.log(`Entry conditions not met for ${symbol}`);
         return;
       }
