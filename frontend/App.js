@@ -61,24 +61,6 @@ export default function App() {
     return avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
   };
 
-  const calcMACD = (closes) => {
-    const ema = (arr, p) => {
-      const k = 2 / (p + 1);
-      const e = [arr[0]];
-      for (let i = 1; i < arr.length; i++) e.push(arr[i] * k + e[i - 1] * (1 - k));
-      return e;
-    };
-    const e12 = ema(closes, 12),
-      e26 = ema(closes, 26);
-    const mac = e12.map((v, i) => v - e26[i]);
-    const sig = ema(mac, 9);
-    return {
-      macd: mac.at(-1),
-      signal: sig.at(-1),
-      prevMacd: mac.at(-2),
-      prevSignal: sig.at(-2),
-    };
-  };
 
   const getTrendSymbol = (closes) => {
     if (closes.length < 15) return '🟰';
@@ -162,17 +144,13 @@ export default function App() {
           const closes = histoData.Data.Data.map((bar) => bar.close);
 
           const rsi = calcRSI(closes);
-          const prevRsi = calcRSI(closes.slice(0, -1));
-          const { macd, signal } = calcMACD(closes);
           const trend = getTrendSymbol(closes);
 
-          const macdBullish = macd >= signal; // allow weak or flat crossovers
-          const rsiRising = rsi > prevRsi; // momentum must be increasing
-          const rsiOK = rsi >= 25; // allow early entries before full momentum builds
-          const trendOK = true; // ignore trend direction entirely
+          const rsiOK = rsi >= 30;
+          const trendUp = trend === '⬆️';
 
-          const entryReady = macdBullish && rsiRising && rsiOK && trendOK;
-          const watchlist = macdBullish && !entryReady;
+          const entryReady = rsiOK && trendUp;
+          const watchlist = rsiOK && !entryReady;
 
           if (entryReady && autoTrade) {
             await placeOrder(asset.symbol, price);
@@ -182,8 +160,6 @@ export default function App() {
             ...asset,
             price,
             rsi: rsi?.toFixed(1),
-            macd: macd?.toFixed(3),
-            signal: signal?.toFixed(3),
             trend,
             entryReady,
             watchlist,
@@ -228,9 +204,7 @@ export default function App() {
         ) : (
           <>
             <Text>Price: ${asset.price}</Text>
-            <Text>
-              RSI: {asset.rsi} | MACD: {asset.macd} | Signal: {asset.signal}
-            </Text>
+            <Text>RSI: {asset.rsi}</Text>
             <Text>Trend: {asset.trend}</Text>
             <Text>{asset.time}</Text>
             <TouchableOpacity onPress={() => placeOrder(asset.symbol, asset.price)}>
