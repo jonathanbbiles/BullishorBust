@@ -148,16 +148,34 @@ export default function App() {
       if (res.ok) {
         Alert.alert('✅ Buy Success', `Order placed for ${symbol} at $${limit_price}`);
         console.log('✅ Buy success:', data);
-          try {
-            const sellBasis = parseFloat(data.filled_avg_price || limit_price);
-            const sellOrder = {
-              symbol,
-              qty,
-              side: 'sell',
-              type: 'limit',
-              time_in_force: 'gtc',
-              limit_price: (sellBasis * 1.005).toFixed(2),
-            };
+        try {
+          const orderId = data.id;
+          let filledOrder = null;
+          for (let i = 0; i < 20; i++) {
+            const statusRes = await fetch(`${ALPACA_BASE_URL}/orders/${orderId}`, {
+              headers: HEADERS,
+            });
+            const statusData = await statusRes.json();
+            if (statusRes.ok && statusData.status === 'filled') {
+              filledOrder = statusData;
+              break;
+            }
+            await new Promise((r) => setTimeout(r, 3000));
+          }
+          if (!filledOrder) {
+            console.error('❌ Buy not filled in time');
+            return;
+          }
+          const sellQty = filledOrder.filled_qty;
+          const sellBasis = parseFloat(filledOrder.filled_avg_price || limit_price);
+          const sellOrder = {
+            symbol,
+            qty: sellQty,
+            side: 'sell',
+            type: 'limit',
+            time_in_force: 'gtc',
+            limit_price: (sellBasis * 1.005).toFixed(2),
+          };
           const sellRes = await fetch(`${ALPACA_BASE_URL}/orders`, {
             method: 'POST',
             headers: HEADERS,
