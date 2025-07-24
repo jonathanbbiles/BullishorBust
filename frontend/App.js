@@ -21,26 +21,26 @@ const HEADERS = {
 };
 
 const ORIGINAL_TOKENS = [
-  { name: 'BTC', symbol: 'BTC' },
-  { name: 'ETH', symbol: 'ETH' },
-  { name: 'DOGE', symbol: 'DOGE' },
-  { name: 'SUSHI', symbol: 'SUSHI' },
-  { name: 'SHIB', symbol: 'SHIB' },
-  { name: 'CRV', symbol: 'CRV' },
-  { name: 'AAVE', symbol: 'AAVE' },
-  { name: 'AVAX', symbol: 'AVAX' },
-  { name: 'LINK', symbol: 'LINK' },
-  { name: 'LTC', symbol: 'LTC' },
-  { name: 'UNI', symbol: 'UNI' },
-  { name: 'DOT', symbol: 'DOT' },
-  { name: 'BCH', symbol: 'BCH' },
-  { name: 'BAT', symbol: 'BAT' },
-  { name: 'XTZ', symbol: 'XTZ' },
-  { name: 'YFI', symbol: 'YFI' },
-  { name: 'GRT', symbol: 'GRT' },
-  { name: 'USDC', symbol: 'USDC' },
-  { name: 'USDT', symbol: 'USDT' },
-  { name: 'MKR', symbol: 'MKR' },
+  { name: 'BTC/USD', symbol: 'BTCUSD', cc: 'BTC' },
+  { name: 'ETH/USD', symbol: 'ETHUSD', cc: 'ETH' },
+  { name: 'DOGE/USD', symbol: 'DOGEUSD', cc: 'DOGE' },
+  { name: 'SUSHI/USD', symbol: 'SUSHIUSD', cc: 'SUSHI' },
+  { name: 'SHIB/USD', symbol: 'SHIBUSD', cc: 'SHIB' },
+  { name: 'CRV/USD', symbol: 'CRVUSD', cc: 'CRV' },
+  { name: 'AAVE/USD', symbol: 'AAVEUSD', cc: 'AAVE' },
+  { name: 'AVAX/USD', symbol: 'AVAXUSD', cc: 'AVAX' },
+  { name: 'LINK/USD', symbol: 'LINKUSD', cc: 'LINK' },
+  { name: 'LTC/USD', symbol: 'LTCUSD', cc: 'LTC' },
+  { name: 'UNI/USD', symbol: 'UNIUSD', cc: 'UNI' },
+  { name: 'DOT/USD', symbol: 'DOTUSD', cc: 'DOT' },
+  { name: 'BCH/USD', symbol: 'BCHUSD', cc: 'BCH' },
+  { name: 'BAT/USD', symbol: 'BATUSD', cc: 'BAT' },
+  { name: 'XTZ/USD', symbol: 'XTZUSD', cc: 'XTZ' },
+  { name: 'YFI/USD', symbol: 'YFIUSD', cc: 'YFI' },
+  { name: 'GRT/USD', symbol: 'GRTUSD', cc: 'GRT' },
+  { name: 'MKR/USD', symbol: 'MKRUSD', cc: 'MKR' },
+  { name: 'PEPE/USD', symbol: 'PEPEUSD', cc: 'PEPE' },
+  { name: 'SOL/USD', symbol: 'SOLUSD', cc: 'SOL' },
 ];
 
 export default function App() {
@@ -96,17 +96,17 @@ export default function App() {
     return { macd: macdLine[macdLine.length - 1], signal };
   };
 
-  const placeOrder = async (symbol, isManual = false) => {
+  const placeOrder = async (symbol, ccSymbol = symbol, isManual = false) => {
     if (!autoTrade && !isManual) return;
     try {
       const priceRes = await fetch(
-        `https://min-api.cryptocompare.com/data/price?fsym=${symbol}&tsyms=USD`
+        `https://min-api.cryptocompare.com/data/price?fsym=${ccSymbol}&tsyms=USD`
       );
       const priceData = await priceRes.json();
       const price = priceData.USD;
 
       const histoRes = await fetch(
-        `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${symbol}&tsym=USD&limit=52&aggregate=15`
+        `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${ccSymbol}&tsym=USD&limit=52&aggregate=15`
       );
       const histoData = await histoRes.json();
       const closes = histoData.Data.Data.map((bar) => bar.close);
@@ -189,13 +189,13 @@ export default function App() {
       tracked.map(async (asset) => {
         try {
           const priceRes = await fetch(
-            `https://min-api.cryptocompare.com/data/price?fsym=${asset.symbol}&tsyms=USD`
+            `https://min-api.cryptocompare.com/data/price?fsym=${asset.cc || asset.symbol}&tsyms=USD`
           );
           const priceData = await priceRes.json();
           const price = priceData.USD;
 
           const histoRes = await fetch(
-            `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${asset.symbol}&tsym=USD&limit=52&aggregate=15`
+            `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${asset.cc || asset.symbol}&tsym=USD&limit=52&aggregate=15`
           );
           const histoData = await histoRes.json();
           const closes = histoData.Data.Data.map((bar) => bar.close);
@@ -214,7 +214,7 @@ export default function App() {
           const watchlist = rsi >= 30 && (trend === '⬆️' || trend === '🟰') && !entryReady;
 
           if (entryReady && autoTrade) {
-            await placeOrder(asset.symbol);
+            await placeOrder(asset.symbol, asset.cc);
           }
 
           return {
@@ -268,7 +268,7 @@ export default function App() {
             <Text>RSI: {asset.rsi}</Text>
             <Text>Trend: {asset.trend}</Text>
             <Text>{asset.time}</Text>
-            <TouchableOpacity onPress={() => placeOrder(asset.symbol, true)}>
+            <TouchableOpacity onPress={() => placeOrder(asset.symbol, asset.cc, true)}>
               <Text style={styles.buyButton}>Manual BUY</Text>
             </TouchableOpacity>
           </>
@@ -287,7 +287,13 @@ export default function App() {
         <Text style={[styles.title, darkMode && styles.titleDark]}>🎭 Bullish or Bust!</Text>
         <Switch value={autoTrade} onValueChange={setAutoTrade} />
       </View>
-      <View style={styles.cardGrid}>{data.map(renderCard)}</View>
+      <View style={styles.cardGrid}>
+        {data.length > 0 && data.some((d) => d.entryReady || d.watchlist) ? (
+          data.map(renderCard)
+        ) : (
+          <Text style={styles.noData}>No tokens meet entry conditions</Text>
+        )}
+      </View>
     </ScrollView>
   );
 }
@@ -319,4 +325,5 @@ const styles = StyleSheet.create({
   symbol: { fontSize: 15, fontWeight: 'bold', color: '#005eff' },
   error: { color: 'red', fontSize: 12 },
   buyButton: { color: '#0066cc', marginTop: 8, fontWeight: 'bold' },
+  noData: { textAlign: 'center', marginTop: 20, fontStyle: 'italic', color: '#777' },
 });
