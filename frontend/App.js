@@ -118,10 +118,7 @@ export default function App() {
       const shouldBuy =
         macd != null &&
         signal != null &&
-        macd > signal &&
-        rsiRising &&
-        rsi > 30 &&
-        (trend === '⬆️' || trend === '🟰');
+        macd > signal;
 
       if (!shouldBuy && !isManual) {
         console.log(`Entry conditions not met for ${symbol}`);
@@ -129,7 +126,7 @@ export default function App() {
       }
 
       const qty = 1;
-      const limit_price = (price * 1.005).toFixed(2);
+      const limit_price = price.toFixed(2);
       const order = {
         symbol,
         qty,
@@ -149,15 +146,16 @@ export default function App() {
       if (res.ok) {
         Alert.alert('✅ Buy Success', `Order placed for ${symbol} at $${limit_price}`);
         console.log('✅ Buy success:', data);
-        try {
-          const sellOrder = {
-            symbol,
-            qty,
-            side: 'sell',
-            type: 'limit',
-            time_in_force: 'gtc',
-            limit_price: (parseFloat(limit_price) * 1.005).toFixed(2),
-          };
+          try {
+            const sellBasis = parseFloat(data.filled_avg_price || limit_price);
+            const sellOrder = {
+              symbol,
+              qty,
+              side: 'sell',
+              type: 'limit',
+              time_in_force: 'gtc',
+              limit_price: (sellBasis * 1.005).toFixed(2),
+            };
           const sellRes = await fetch(`${ALPACA_BASE_URL}/orders`, {
             method: 'POST',
             headers: HEADERS,
@@ -209,10 +207,7 @@ export default function App() {
           const entryReady =
             macd != null &&
             signal != null &&
-            macd > signal &&
-            rsiRising &&
-            rsi >= 30 &&
-            (trend === '⬆️' || trend === '🟰');
+            macd > signal;
 
           const watchlist = rsi >= 30 && (trend === '⬆️' || trend === '🟰') && !entryReady;
 
