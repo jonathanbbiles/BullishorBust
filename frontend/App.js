@@ -74,26 +74,81 @@ export default function App() {
     return slope > 0.02 ? '⬆️' : slope < -0.02 ? '⬇️' : '🟰';
   };
 
-  const placeOrder = async (symbol, price) => {
+  const calcMACD = (closes, short = 12, long = 26, signalPeriod = 9) => {
+    if (closes.length < long + signalPeriod) return { macd: null, signal: null };
+    const kShort = 2 / (short + 1);
+    const kLong = 2 / (long + 1);
+    const kSig = 2 / (signalPeriod + 1);
+    let emaShort = closes[0];
+    let emaLong = closes[0];
+    const macdLine = [];
+    closes.forEach((price) => {
+      emaShort = price * kShort + emaShort * (1 - kShort);
+      emaLong = price * kLong + emaLong * (1 - kLong);
+      macdLine.push(emaShort - emaLong);
+    });
+    let signal = macdLine[0];
+    for (let i = 1; i < macdLine.length; i++) {
+      signal = macdLine[i] * kSig + signal * (1 - kSig);
+    }
+    return { macd: macdLine[macdLine.length - 1], signal };
+  };
+
+  const placeOrder = async (symbol) => {
+    if (!autoTrade) return;
     try {
+      const priceRes = await fetch(
+        `https://min-api.cryptocompare.com/data/price?fsym=${symbol}&tsyms=USD`
+      );
+      const priceData = await priceRes.json();
+      const price = priceData.USD;
+
+      const histoRes = await fetch(
+        `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${symbol}&tsym=USD&limit=52&aggregate=15`
+      );
+      const histoData = await histoRes.json();
+      const closes = histoData.Data.Data.map((bar) => bar.close);
+
+      const rsi = calcRSI(closes);
+      const rsiPrev = calcRSI(closes.slice(0, -1));
+      const rsiRising = rsiPrev != null && rsi != null && rsi > rsiPrev;
+      const { macd, signal } = calcMACD(closes);
+      const trend = getTrendSymbol(closes);
+
+      const shouldBuy =
+        macd != null &&
+        signal != null &&
+        macd > signal &&
+        rsiRising &&
+        rsi > 30 &&
+        (trend === '⬆️' || trend === '🟰');
+
+      if (!shouldBuy) {
+        console.log(`Entry conditions not met for ${symbol}`);
+        return;
+      }
+
       const qty = 1;
+      const limit_price = (price * 1.005).toFixed(2);
       const order = {
         symbol,
         qty,
         side: 'buy',
         type: 'limit',
         time_in_force: 'gtc',
-        limit_price: (price * 1.005).toFixed(2),
+        limit_price,
       };
+
       const res = await fetch(`${ALPACA_BASE_URL}/orders`, {
         method: 'POST',
         headers: HEADERS,
         body: JSON.stringify(order),
       });
       const data = await res.json();
+
       if (res.ok) {
-        Alert.alert('✅ Buy Success', `Order placed for ${symbol} at $${order.limit_price}`);
-        console.log('✅ Order success:', data);
+        Alert.alert('✅ Buy Success', `Order placed for ${symbol} at $${limit_price}`);
+        console.log('✅ Buy success:', data);
         try {
           const sellOrder = {
             symbol,
@@ -101,7 +156,7 @@ export default function App() {
             side: 'sell',
             type: 'limit',
             time_in_force: 'gtc',
-            limit_price: (parseFloat(order.limit_price) * 1.005).toFixed(2),
+            limit_price: (parseFloat(limit_price) * 1.005).toFixed(2),
           };
           const sellRes = await fetch(`${ALPACA_BASE_URL}/orders`, {
             method: 'POST',
@@ -113,16 +168,18 @@ export default function App() {
             console.log('✅ Sell order placed:', sellData);
           } else {
             console.error('❌ Sell failed:', sellData);
+            Alert.alert('❌ Sell Failed', sellData.message || 'Unknown error');
           }
         } catch (sellErr) {
           console.error('❌ Sell error:', sellErr);
+          Alert.alert('❌ Sell Error', sellErr.message);
         }
       } else {
         Alert.alert('❌ Buy Failed', data.message || 'Unknown error');
-        console.error('❌ Order failed:', data);
+        console.error('❌ Buy failed:', data);
       }
     } catch (err) {
-      Alert.alert('❌ Buy Error', err.message);
+      Alert.alert('❌ Order Error', err.message);
       console.error('❌ Order error:', err);
     }
   };
@@ -144,16 +201,23 @@ export default function App() {
           const closes = histoData.Data.Data.map((bar) => bar.close);
 
           const rsi = calcRSI(closes);
+          const rsiPrev = calcRSI(closes.slice(0, -1));
+          const rsiRising = rsiPrev != null && rsi != null && rsi > rsiPrev;
+          const { macd, signal } = calcMACD(closes);
           const trend = getTrendSymbol(closes);
 
-          const rsiOK = rsi >= 30;
-          const trendUp = trend === '⬆️';
+          const entryReady =
+            macd != null &&
+            signal != null &&
+            macd > signal &&
+            rsiRising &&
+            rsi >= 30 &&
+            (trend === '⬆️' || trend === '🟰');
 
-          const entryReady = rsiOK && trendUp;
-          const watchlist = rsiOK && !entryReady;
+          const watchlist = rsi >= 30 && (trend === '⬆️' || trend === '🟰') && !entryReady;
 
           if (entryReady && autoTrade) {
-            await placeOrder(asset.symbol, price);
+            await placeOrder(asset.symbol);
           }
 
           return {
@@ -207,7 +271,7 @@ export default function App() {
             <Text>RSI: {asset.rsi}</Text>
             <Text>Trend: {asset.trend}</Text>
             <Text>{asset.time}</Text>
-            <TouchableOpacity onPress={() => placeOrder(asset.symbol, asset.price)}>
+            <TouchableOpacity onPress={() => placeOrder(asset.symbol)}>
               <Text style={styles.buyButton}>Manual BUY</Text>
             </TouchableOpacity>
           </>
