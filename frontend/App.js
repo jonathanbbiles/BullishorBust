@@ -94,8 +94,8 @@ export default function App() {
     return { macd: macdLine[macdLine.length - 1], signal };
   };
 
-  const placeOrder = async (symbol) => {
-    if (!autoTrade) return;
+  const placeOrder = async (symbol, isManual = false) => {
+    if (!autoTrade && !isManual) return;
     try {
       const priceRes = await fetch(
         `https://min-api.cryptocompare.com/data/price?fsym=${symbol}&tsyms=USD`
@@ -271,7 +271,7 @@ export default function App() {
             <Text>RSI: {asset.rsi}</Text>
             <Text>Trend: {asset.trend}</Text>
             <Text>{asset.time}</Text>
-            <TouchableOpacity onPress={() => placeOrder(asset.symbol)}>
+            <TouchableOpacity onPress={() => placeOrder(asset.symbol, true)}>
               <Text style={styles.buyButton}>Manual BUY</Text>
             </TouchableOpacity>
           </>
