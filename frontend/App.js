@@ -112,6 +112,29 @@ export default function App() {
       if (res.ok) {
         Alert.alert('✅ Buy Success', `Order placed for ${symbol} at $${order.limit_price}`);
         console.log('✅ Order success:', data);
+        try {
+          const sellOrder = {
+            symbol,
+            qty,
+            side: 'sell',
+            type: 'limit',
+            time_in_force: 'gtc',
+            limit_price: (parseFloat(order.limit_price) * 1.005).toFixed(2),
+          };
+          const sellRes = await fetch(`${ALPACA_BASE_URL}/orders`, {
+            method: 'POST',
+            headers: HEADERS,
+            body: JSON.stringify(sellOrder),
+          });
+          const sellData = await sellRes.json();
+          if (sellRes.ok) {
+            console.log('✅ Sell order placed:', sellData);
+          } else {
+            console.error('❌ Sell failed:', sellData);
+          }
+        } catch (sellErr) {
+          console.error('❌ Sell error:', sellErr);
+        }
       } else {
         Alert.alert('❌ Buy Failed', data.message || 'Unknown error');
         console.error('❌ Order failed:', data);
