@@ -147,10 +147,9 @@ export default function App() {
       const emaBreakout = ema != null && emaPrev != null && price > ema && pricePrev < emaPrev;
 
       const shouldBuy =
-        macd != null &&
-        signal != null &&
-        macd > signal &&
-        (rsiRising || emaBreakout);
+        (macd != null && signal != null && macd > signal) ||
+        rsiRising ||
+        trend === '⬆️';
 
       if (!shouldBuy && !isManual) {
         console.log(`Entry conditions not met for ${symbol}`);
@@ -286,11 +285,9 @@ export default function App() {
           const trend = getTrendSymbol(closes);
 
           const entryReady =
-            macd != null &&
-            signal != null &&
-            macd > signal &&
-            rsiRising &&
-            (trend === '⬆️' || trend === '🟰');
+            (macd != null && signal != null && macd > signal) ||
+            rsiRising ||
+            trend === '⬆️';
 
           const watchlist = macd != null && signal != null && macd > signal && !entryReady;
 
