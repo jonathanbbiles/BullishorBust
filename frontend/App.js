@@ -191,13 +191,19 @@ export default function App() {
         return;
       }
 
+      // Determine the basis price for the sell order. Prefer the actual filled
+      // average price if it's available and valid, otherwise fall back to the
+      // limit price used for the buy order.
+      const filledPrice = parseFloat(filledOrder.filled_avg_price);
+      const sellBasis = isNaN(filledPrice) ? parseFloat(limit_price) : filledPrice;
+
       const limitSell = {
         symbol,
         qty: filledOrder.filled_qty,
         side: 'sell',
         type: 'limit',
         time_in_force: 'gtc',
-        limit_price: (parseFloat(filledOrder.filled_avg_price) * 1.005).toFixed(2),
+        limit_price: (sellBasis * 1.005).toFixed(2),
       };
 
       try {
