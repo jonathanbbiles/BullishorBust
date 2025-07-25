@@ -151,8 +151,8 @@ export default function App() {
       const accountData = await accountRes.json();
       const buyingPower = parseFloat(accountData.buying_power || accountData.cash || '0');
       const qty = parseFloat(((buyingPower * 0.1) / price).toFixed(6));
+      // Skip buy silently if not enough cash
       if (qty <= 0) {
-        console.error('❌ Insufficient buying power');
         return;
       }
 
