@@ -260,9 +260,9 @@ export default function App() {
           });
           if (posRes.ok) {
             const posData = await posRes.json();
-            const qtyFromPosition = parseFloat(posData.qty);
-            if (!isNaN(qtyFromPosition)) {
-              positionQty = Math.min(positionQty, qtyFromPosition);
+            const fullQty = parseFloat(posData.qty);
+            if (!isNaN(fullQty)) {
+              positionQty = parseFloat(fullQty.toFixed(6));
               break;
             }
           } else {
