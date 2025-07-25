@@ -243,7 +243,7 @@ export default function App() {
             `https://min-api.cryptocompare.com/data/price?fsym=${asset.cc || asset.symbol}&tsyms=USD`
           );
           const priceData = await priceRes.json();
-          const price = priceData.USD;
+          const price = typeof priceData.USD === 'number' ? priceData.USD : null;
 
           const histoRes = await fetch(
             `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${asset.cc || asset.symbol}&tsym=USD&limit=52&aggregate=15`
@@ -264,7 +264,13 @@ export default function App() {
           const { macd, signal } = calcMACD(closes);
           const prev = calcMACD(closes.slice(0, -1));
 
-          const entryReady = macd != null && signal != null && macd > signal;
+          const missingData = price == null || closes.length < 30;
+
+          const entryReady =
+            macd != null &&
+            signal != null &&
+            macd > signal &&
+            macd - signal >= 0.0001;
 
           const watchlist =
             macd != null &&
@@ -284,6 +290,7 @@ export default function App() {
             trend,
             entryReady,
             watchlist,
+            missingData,
             time: new Date().toLocaleTimeString(),
           };
         } catch (err) {
@@ -328,8 +335,11 @@ export default function App() {
             {asset.watchlist && !asset.entryReady && (
               <Text style={styles.watchlist}>🟧 WATCHLIST</Text>
             )}
-            <Text>Price: ${asset.price}</Text>
-            <Text>RSI: {asset.rsi}</Text>
+            {asset.price != null && <Text>Price: ${asset.price}</Text>}
+            {asset.rsi != null && <Text>RSI: {asset.rsi}</Text>}
+            {asset.price == null || asset.rsi == null ? (
+              <Text style={styles.missing}>⚠️ Missing data</Text>
+            ) : null}
             <Text>Trend: {asset.trend}</Text>
             <Text>{asset.time}</Text>
             <TouchableOpacity onPress={() => placeOrder(asset.symbol, asset.cc, true)}>
@@ -430,4 +440,5 @@ const styles = StyleSheet.create({
   watchlist: { color: '#FFA500', fontWeight: 'bold' },
   waiting: { alignItems: 'center', marginTop: 20 },
   sectionHeader: { fontSize: 16, fontWeight: 'bold', marginBottom: 5, marginTop: 10 },
+  missing: { color: 'gray', fontStyle: 'italic' },
 });
