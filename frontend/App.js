@@ -39,8 +39,6 @@ const ORIGINAL_TOKENS = [
   { name: 'YFI/USD', symbol: 'YFIUSD', cc: 'YFI' },
   { name: 'GRT/USD', symbol: 'GRTUSD', cc: 'GRT' },
   { name: 'MKR/USD', symbol: 'MKRUSD', cc: 'MKR' },
-  { name: 'USDC/USD', symbol: 'USDCUSD', cc: 'USDC' },
-  { name: 'USDT/USD', symbol: 'USDTUSD', cc: 'USDT' },
 ];
 
 export default function App() {
@@ -132,6 +130,7 @@ export default function App() {
       const closes = Array.isArray(histoBars)
         ? histoBars.map((bar) => bar.close)
         : [];
+      console.log(`Chart data for ${ccSymbol}: ${closes.length} closes`);
 
       const { macd, signal } = calcMACD(closes);
 
@@ -157,6 +156,8 @@ export default function App() {
         side: 'buy',
         type: 'market',
         time_in_force: 'gtc',
+        order_class: 'simple',
+        extended_hours: true,
       };
 
       const res = await fetch(`${ALPACA_BASE_URL}/orders`, {
@@ -208,7 +209,9 @@ export default function App() {
         qty: filledOrder.filled_qty,
         side: 'sell',
         type: 'limit',
-        time_in_force: 'gtc',
+        time_in_force: 'fok',
+        order_class: 'simple',
+        extended_hours: true,
         limit_price: (sellBasis * 1.0025).toFixed(2),
       };
 
@@ -258,21 +261,35 @@ export default function App() {
           }
 
           const closes = histoBars.map((bar) => bar.close);
+          console.log(`Chart data for ${asset.symbol}: ${closes.length} closes`);
 
-          const rsi = calcRSI(closes);
+          let rsi = null;
+          let macd = null;
+          let signal = null;
+          let prev = {};
+
+          if (closes.length >= 20) {
+            rsi = calcRSI(closes);
+            const macdRes = calcMACD(closes);
+            macd = macdRes.macd;
+            signal = macdRes.signal;
+            prev = calcMACD(closes.slice(0, -1));
+          } else if (closes.length > 0) {
+            console.warn(`Insufficient closes for ${asset.symbol}: ${closes.length}`);
+          }
+
           const trend = getTrendSymbol(closes);
-          const { macd, signal } = calcMACD(closes);
-          const prev = calcMACD(closes.slice(0, -1));
 
-          const missingData = price == null || closes.length < 30;
+          const missingData = price == null || closes.length < 20;
 
           const entryReady =
+            !missingData &&
             macd != null &&
             signal != null &&
-            macd > signal &&
-            macd - signal >= 0.0001;
+            macd > signal;
 
           const watchlist =
+            !missingData &&
             macd != null &&
             signal != null &&
             prev.macd != null &&
@@ -337,9 +354,9 @@ export default function App() {
             )}
             {asset.price != null && <Text>Price: ${asset.price}</Text>}
             {asset.rsi != null && <Text>RSI: {asset.rsi}</Text>}
-            {asset.price == null || asset.rsi == null ? (
+            {asset.missingData && (
               <Text style={styles.missing}>⚠️ Missing data</Text>
-            ) : null}
+            )}
             <Text>Trend: {asset.trend}</Text>
             <Text>{asset.time}</Text>
             <TouchableOpacity onPress={() => placeOrder(asset.symbol, asset.cc, true)}>
@@ -440,5 +457,5 @@ const styles = StyleSheet.create({
   watchlist: { color: '#FFA500', fontWeight: 'bold' },
   waiting: { alignItems: 'center', marginTop: 20 },
   sectionHeader: { fontSize: 16, fontWeight: 'bold', marginBottom: 5, marginTop: 10 },
-  missing: { color: 'gray', fontStyle: 'italic' },
+  missing: { color: 'red', fontStyle: 'italic' },
 });
