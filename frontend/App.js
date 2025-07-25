@@ -7,8 +7,8 @@ import {
   RefreshControl,
   TouchableOpacity,
   Switch,
-  Alert,
 } from 'react-native';
+import Toast from 'react-native-root-toast';
 
 const ALPACA_KEY = 'PKGY01ABISEXQJZX5L7M';
 const ALPACA_SECRET = 'PwJAEwLnLnsf7qAVvFutE8VIMgsAgvi7PMkMcCca';
@@ -167,7 +167,10 @@ export default function App() {
       // Skip buy silently if not enough cash for auto trades
       if (qty <= 0) {
         if (isManual) {
-          Alert.alert('❌ Order Failed', 'Insufficient cash');
+          Toast.show('❌ Order Failed: Insufficient cash', {
+            duration: Toast.durations.SHORT,
+            position: Toast.positions.BOTTOM,
+          });
         } else {
           insufficientFundsThisCycle = true;
           console.log('Insufficient funds, skipping remaining buys this cycle');
@@ -195,7 +198,13 @@ export default function App() {
       if (!res.ok) {
         console.error('❌ Order failed:', orderData);
         if (isManual) {
-          Alert.alert('❌ Order Failed', orderData.message || 'Unknown error');
+          Toast.show(
+            `❌ Order Failed: ${orderData.message || 'Unknown error'}`,
+            {
+              duration: Toast.durations.SHORT,
+              position: Toast.positions.BOTTOM,
+            }
+          );
         }
         return;
       }
@@ -229,7 +238,10 @@ export default function App() {
       const filledPrice = parseFloat(filledOrder.filled_avg_price);
       const sellBasis = isNaN(filledPrice) ? price : filledPrice;
 
-      Alert.alert('✅ Buy Filled', `Bought ${symbol} at $${sellBasis.toFixed(2)}`);
+      Toast.show(`✅ Buy Filled: ${symbol} at $${sellBasis.toFixed(2)}`, {
+        duration: Toast.durations.SHORT,
+        position: Toast.positions.BOTTOM,
+      });
 
       // Wait a short period to ensure the position settles before selling
       await sleep(5000);
@@ -304,9 +316,12 @@ export default function App() {
               `✅ Limit sell placed for ${symbol}: qty=${limitSell.qty} limit=${limitSell.limit_price}`,
               sellData
             );
-            Alert.alert(
-              '✅ Trade Executed',
-              `Sell order placed at $${limitSell.limit_price}`
+            Toast.show(
+              `✅ Trade Executed: Sell order placed at $${limitSell.limit_price}`,
+              {
+                duration: Toast.durations.SHORT,
+                position: Toast.positions.BOTTOM,
+              }
             );
           } else {
             lastStatus = sellRes.status;
@@ -343,9 +358,12 @@ export default function App() {
         const qtyPart = match
           ? `Requested: ${match[1]}\nAvailable: ${match[2]}\n`
           : '';
-        Alert.alert(
-          '❌ Sell Failed',
-          `${statusPart}${msgPart}\n${qtyPart}Unable to place sell order after retries`
+        Toast.show(
+          `❌ Sell Failed: ${statusPart}${msgPart}\n${qtyPart}Unable to place sell order after retries`,
+          {
+            duration: Toast.durations.SHORT,
+            position: Toast.positions.BOTTOM,
+          }
         );
       }
     } catch (err) {
