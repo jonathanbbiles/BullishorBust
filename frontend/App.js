@@ -247,81 +247,84 @@ export default function App() {
   };
 
   const loadData = async () => {
-    const results = await Promise.all(
-      tracked.map(async (asset) => {
-        const token = {
-          ...asset,
-          price: null,
-          rsi: null,
-          macd: null,
-          signal: null,
-          trend: '🟰',
-          entryReady: false,
-          watchlist: false,
-          missingData: false,
-          error: null,
-          time: new Date().toLocaleTimeString(),
-        };
-        try {
-          const priceRes = await fetch(
-            `https://min-api.cryptocompare.com/data/price?fsym=${asset.cc || asset.symbol}&tsyms=USD`
-          );
-          const priceData = await priceRes.json();
-          token.price = typeof priceData.USD === 'number' ? priceData.USD : null;
-
-          const histoRes = await fetch(
-            `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${asset.cc || asset.symbol}&tsym=USD&limit=52&aggregate=15`
-          );
-          const histoData = await histoRes.json();
-          const histoBars = Array.isArray(histoData?.Data?.Data)
-            ? histoData.Data.Data
-            : [];
-
-          if (histoBars.length === 0) {
-            console.warn(`No chart data returned for ${asset.symbol}`);
-          }
-
-          const closes = histoBars.map((bar) => bar.close);
-          console.log(`Chart data for ${asset.symbol}: ${closes.length} closes`);
-
-          if (closes.length >= 20) {
-            const r = calcRSI(closes);
-            const macdRes = calcMACD(closes);
-            token.rsi = r != null ? r.toFixed(1) : null;
-            token.macd = macdRes.macd;
-            token.signal = macdRes.signal;
-            const prev = calcMACD(closes.slice(0, -1));
-
-            token.entryReady =
-              token.macd != null &&
-              token.signal != null &&
-              token.macd > token.signal;
-
-            token.watchlist =
-              token.macd != null &&
-              token.signal != null &&
-              prev.macd != null &&
-              token.macd > prev.macd &&
-              token.macd <= token.signal;
-          } else if (closes.length > 0) {
-            console.warn(`Insufficient closes for ${asset.symbol}: ${closes.length}`);
-          }
-
-          token.trend = getTrendSymbol(closes);
-          token.missingData = token.price == null || closes.length < 20;
-
-          if (token.entryReady && autoTrade) {
-            await placeOrder(asset.symbol, asset.cc);
-          }
-
-          return token;
-        } catch (err) {
-          token.error = err.message;
-          token.missingData = true;
-          return token;
+    const results = [];
+    for (const asset of tracked) {
+      const token = {
+        ...asset,
+        price: null,
+        rsi: null,
+        macd: null,
+        signal: null,
+        trend: '🟰',
+        entryReady: false,
+        watchlist: false,
+        missingData: false,
+        error: null,
+        time: new Date().toLocaleTimeString(),
+      };
+      try {
+        const priceRes = await fetch(
+          `https://min-api.cryptocompare.com/data/price?fsym=${asset.cc || asset.symbol}&tsyms=USD`
+        );
+        const priceData = await priceRes.json();
+        if (typeof priceData.USD === 'number') {
+          token.price = priceData.USD;
+        } else {
+          console.warn(`Price unavailable for ${asset.symbol}`);
         }
-      })
-    );
+
+        const histoRes = await fetch(
+          `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${asset.cc || asset.symbol}&tsym=USD&limit=52&aggregate=15`
+        );
+        const histoData = await histoRes.json();
+        const histoBars = Array.isArray(histoData?.Data?.Data)
+          ? histoData.Data.Data
+          : [];
+        if (histoBars.length === 0) {
+          console.warn(`No chart data returned for ${asset.symbol}`);
+        }
+
+        const closes = histoBars
+          .map((bar) => bar.close)
+          .filter((c) => typeof c === 'number');
+        console.log(`Chart data for ${asset.symbol}: ${closes.length} closes`);
+
+        if (closes.length >= 20) {
+          const r = calcRSI(closes);
+          const macdRes = calcMACD(closes);
+          token.rsi = r != null ? r.toFixed(1) : null;
+          token.macd = macdRes.macd;
+          token.signal = macdRes.signal;
+          const prev = calcMACD(closes.slice(0, -1));
+
+          token.entryReady =
+            token.macd != null &&
+            token.signal != null &&
+            token.macd > token.signal;
+
+          token.watchlist =
+            token.macd != null &&
+            token.signal != null &&
+            prev.macd != null &&
+            token.macd > prev.macd &&
+            token.macd <= token.signal;
+        } else if (closes.length > 0) {
+          console.warn(`Insufficient closes for ${asset.symbol}: ${closes.length}`);
+        }
+
+        token.trend = getTrendSymbol(closes);
+        token.missingData = token.price == null || closes.length < 20;
+
+        if (token.entryReady && autoTrade) {
+          await placeOrder(asset.symbol, asset.cc);
+        }
+      } catch (err) {
+        console.error(`Failed to load ${asset.symbol}:`, err);
+        token.error = err.message;
+        token.missingData = true;
+      }
+      results.push(token);
+    }
     setData(results);
     setRefreshing(false);
   };
