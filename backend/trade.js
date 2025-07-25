@@ -49,7 +49,7 @@ async function placeLimitBuyThenSell(symbol, qty, limitPrice) {
   }
 
   const avgPrice = parseFloat(filledOrder.filled_avg_price);
-  const sellPrice = (avgPrice * 1.005).toFixed(2);
+  const sellPrice = (avgPrice * 1.0025).toFixed(2);
 
   const sellRes = await axios.post(
     `${ALPACA_BASE_URL}/orders`,
@@ -95,7 +95,7 @@ function roundPrice(price) {
   return parseFloat(Number(price).toFixed(2));
 }
 
-// Market buy using 10% of cash then place a limit sell 0.5% higher
+// Market buy using 10% of cash then place a limit sell 0.25% higher
 async function placeMarketBuyThenSell(symbol) {
   const [price, cash] = await Promise.all([
     getLatestPrice(symbol),
@@ -139,7 +139,7 @@ async function placeMarketBuyThenSell(symbol) {
   // Wait 10 seconds before selling
   await sleep(10000);
 
-  const limitPrice = roundPrice(parseFloat(filled.filled_avg_price) * 1.005);
+  const limitPrice = roundPrice(parseFloat(filled.filled_avg_price) * 1.0025);
 
   try {
     const sellRes = await axios.post(

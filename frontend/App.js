@@ -146,7 +146,11 @@ export default function App() {
       const pricePrev = closes[closes.length - 2];
       const emaBreakout = ema != null && emaPrev != null && price > ema && pricePrev < emaPrev;
 
-      const shouldBuy = macd != null && signal != null && macd > signal && rsiRising && emaBreakout;
+      const shouldBuy =
+        macd != null &&
+        signal != null &&
+        macd > signal &&
+        (rsiRising || emaBreakout);
 
       if (!shouldBuy && !isManual) {
         console.log(`Entry conditions not met for ${symbol}`);
