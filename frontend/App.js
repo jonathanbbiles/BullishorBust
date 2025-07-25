@@ -249,12 +249,25 @@ export default function App() {
   const loadData = async () => {
     const results = await Promise.all(
       tracked.map(async (asset) => {
+        const token = {
+          ...asset,
+          price: null,
+          rsi: null,
+          macd: null,
+          signal: null,
+          trend: '🟰',
+          entryReady: false,
+          watchlist: false,
+          missingData: false,
+          error: null,
+          time: new Date().toLocaleTimeString(),
+        };
         try {
           const priceRes = await fetch(
             `https://min-api.cryptocompare.com/data/price?fsym=${asset.cc || asset.symbol}&tsyms=USD`
           );
           const priceData = await priceRes.json();
-          const price = typeof priceData.USD === 'number' ? priceData.USD : null;
+          token.price = typeof priceData.USD === 'number' ? priceData.USD : null;
 
           const histoRes = await fetch(
             `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${asset.cc || asset.symbol}&tsym=USD&limit=52&aggregate=15`
@@ -271,55 +284,41 @@ export default function App() {
           const closes = histoBars.map((bar) => bar.close);
           console.log(`Chart data for ${asset.symbol}: ${closes.length} closes`);
 
-          let rsi = null;
-          let macd = null;
-          let signal = null;
-          let prev = {};
-
           if (closes.length >= 20) {
-            rsi = calcRSI(closes);
+            const r = calcRSI(closes);
             const macdRes = calcMACD(closes);
-            macd = macdRes.macd;
-            signal = macdRes.signal;
-            prev = calcMACD(closes.slice(0, -1));
+            token.rsi = r != null ? r.toFixed(1) : null;
+            token.macd = macdRes.macd;
+            token.signal = macdRes.signal;
+            const prev = calcMACD(closes.slice(0, -1));
+
+            token.entryReady =
+              token.macd != null &&
+              token.signal != null &&
+              token.macd > token.signal;
+
+            token.watchlist =
+              token.macd != null &&
+              token.signal != null &&
+              prev.macd != null &&
+              token.macd > prev.macd &&
+              token.macd <= token.signal;
           } else if (closes.length > 0) {
             console.warn(`Insufficient closes for ${asset.symbol}: ${closes.length}`);
           }
 
-          const trend = getTrendSymbol(closes);
+          token.trend = getTrendSymbol(closes);
+          token.missingData = token.price == null || closes.length < 20;
 
-          const missingData = price == null || closes.length < 20;
-
-          const entryReady =
-            !missingData &&
-            macd != null &&
-            signal != null &&
-            macd > signal;
-
-          const watchlist =
-            !missingData &&
-            macd != null &&
-            signal != null &&
-            prev.macd != null &&
-            macd > prev.macd &&
-            macd <= signal;
-
-          if (entryReady && autoTrade) {
+          if (token.entryReady && autoTrade) {
             await placeOrder(asset.symbol, asset.cc);
           }
 
-          return {
-            ...asset,
-            price,
-            rsi: rsi?.toFixed(1),
-            trend,
-            entryReady,
-            watchlist,
-            missingData,
-            time: new Date().toLocaleTimeString(),
-          };
+          return token;
         } catch (err) {
-          return { ...asset, error: err.message };
+          token.error = err.message;
+          token.missingData = true;
+          return token;
         }
       })
     );
@@ -350,28 +349,25 @@ export default function App() {
         <Text style={styles.symbol}>
           {asset.name} ({asset.symbol})
         </Text>
-        {asset.error ? (
-          <Text style={styles.error}>Error: {asset.error}</Text>
-        ) : (
-          <>
-            {asset.entryReady && (
-              <Text style={styles.entryReady}>✅ ENTRY READY</Text>
-            )}
-            {asset.watchlist && !asset.entryReady && (
-              <Text style={styles.watchlist}>🟧 WATCHLIST</Text>
-            )}
-            {asset.price != null && <Text>Price: ${asset.price}</Text>}
-            {asset.rsi != null && <Text>RSI: {asset.rsi}</Text>}
-            {asset.missingData && (
-              <Text style={styles.missing}>⚠️ Missing data</Text>
-            )}
-            <Text>Trend: {asset.trend}</Text>
-            <Text>{asset.time}</Text>
-            <TouchableOpacity onPress={() => placeOrder(asset.symbol, asset.cc, true)}>
-              <Text style={styles.buyButton}>Manual BUY</Text>
-            </TouchableOpacity>
-          </>
+        {asset.entryReady && (
+          <Text style={styles.entryReady}>✅ ENTRY READY</Text>
         )}
+        {asset.watchlist && !asset.entryReady && (
+          <Text style={styles.watchlist}>🟧 WATCHLIST</Text>
+        )}
+        {asset.price != null && <Text>Price: ${asset.price}</Text>}
+        {asset.rsi != null && <Text>RSI: {asset.rsi}</Text>}
+        <Text>Trend: {asset.trend}</Text>
+        {asset.missingData && (
+          <Text style={styles.missing}>⚠️ Missing data</Text>
+        )}
+        {asset.error && (
+          <Text style={styles.error}>❌ Not tradable: {asset.error}</Text>
+        )}
+        <Text>{asset.time}</Text>
+        <TouchableOpacity onPress={() => placeOrder(asset.symbol, asset.cc, true)}>
+          <Text style={styles.buyButton}>Manual BUY</Text>
+        </TouchableOpacity>
       </View>
     );
   };
