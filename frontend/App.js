@@ -157,7 +157,22 @@ export default function App() {
       const accountRes = await fetch(`${ALPACA_BASE_URL}/account`, { headers: HEADERS });
       const accountData = await accountRes.json();
       const cash = parseFloat(accountData.cash || '0');
-      let qty = parseFloat(((cash * 0.1) / price).toFixed(6));
+
+      if (cash < 10) {
+        if (isManual) {
+          Toast.show('❌ Order Failed: Insufficient cash', {
+            duration: Toast.durations.SHORT,
+            position: Toast.positions.BOTTOM,
+          });
+        } else {
+          insufficientFundsThisCycle = true;
+          console.log('Insufficient funds, skipping remaining buys this cycle');
+        }
+        return;
+      }
+
+      const allocation = Math.min(Math.max(cash * 0.1, 10), cash);
+      let qty = parseFloat((allocation / price).toFixed(6));
       if (qty * price > cash) {
         qty = parseFloat((cash / price).toFixed(6));
       }

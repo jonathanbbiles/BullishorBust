@@ -102,7 +102,12 @@ async function placeMarketBuyThenSell(symbol) {
     getAccountCash(),
   ]);
 
-  const qty = roundQty((cash * 0.1) / price);
+  if (cash < 10) {
+    throw new Error('Insufficient cash for trade');
+  }
+
+  const allocation = Math.min(Math.max(cash * 0.1, 10), cash);
+  const qty = roundQty(allocation / price);
   if (qty <= 0) {
     throw new Error('Insufficient cash for trade');
   }
