@@ -121,7 +121,14 @@ export default function App() {
         `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${ccSymbol}&tsym=USD&limit=52&aggregate=15`
       );
       const histoData = await histoRes.json();
-      const closes = histoData.Data.Data.map((bar) => bar.close);
+      const histoBars = Array.isArray(histoData?.Data?.Data)
+        ? histoData.Data.Data
+        : null;
+      if (!histoBars) {
+        console.warn(`No chart data returned for ${ccSymbol}`);
+        return;
+      }
+      const closes = histoBars.map((bar) => bar.close);
 
       const rsi = calcRSI(closes);
       const rsiPrev = calcRSI(closes.slice(0, -1));
@@ -252,7 +259,23 @@ export default function App() {
             `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${asset.cc || asset.symbol}&tsym=USD&limit=52&aggregate=15`
           );
           const histoData = await histoRes.json();
-          const closes = histoData.Data.Data.map((bar) => bar.close);
+          const histoBars = Array.isArray(histoData?.Data?.Data)
+            ? histoData.Data.Data
+            : null;
+          if (!histoBars) {
+            console.warn(`No chart data returned for ${asset.symbol}`);
+            return {
+              ...asset,
+              price,
+              rsi: 'N/A',
+              rsiRising: false,
+              trend: 'N/A',
+              entryReady: false,
+              watchlist: false,
+              time: new Date().toLocaleTimeString(),
+            };
+          }
+          const closes = histoBars.map((bar) => bar.close);
 
           const rsi = calcRSI(closes);
           const rsiPrev = calcRSI(closes.slice(0, -1));
