@@ -227,9 +227,27 @@ export default function App() {
 
       await sleep(15000);
 
+      let positionQty = parseFloat(filledOrder.filled_qty);
+      try {
+        const posRes = await fetch(`${ALPACA_BASE_URL}/positions/${symbol}`, {
+          headers: HEADERS,
+        });
+        if (posRes.ok) {
+          const posData = await posRes.json();
+          const qtyFromPosition = parseFloat(posData.qty);
+          if (!isNaN(qtyFromPosition)) {
+            positionQty = qtyFromPosition;
+          }
+        } else {
+          console.warn('❌ Unable to fetch position, using filled qty');
+        }
+      } catch (posErr) {
+        console.error('❌ Position fetch error:', posErr);
+      }
+
       const limitSell = {
         symbol,
-        qty: filledOrder.filled_qty,
+        qty: positionQty,
         side: 'sell',
         type: 'limit',
         time_in_force: 'gtc',
@@ -238,23 +256,41 @@ export default function App() {
         limit_price: (sellBasis * 1.0025).toFixed(2),
       };
 
-      try {
-        const sellRes = await fetch(`${ALPACA_BASE_URL}/orders`, {
-          method: 'POST',
-          headers: HEADERS,
-          body: JSON.stringify(limitSell),
-        });
-        const sellData = await sellRes.json();
-        if (sellRes.ok) {
-          console.log('✅ Limit sell placed:', sellData);
-          Alert.alert('✅ Trade Executed', `Sell order placed at $${limitSell.limit_price}`);
-        } else {
-          Alert.alert('❌ Sell Failed', sellData.message || 'Unknown error');
-          console.error('❌ Sell failed:', sellData);
+      let sellSuccess = false;
+      for (let attempt = 1; attempt <= 3 && !sellSuccess; attempt++) {
+        try {
+          const sellRes = await fetch(`${ALPACA_BASE_URL}/orders`, {
+            method: 'POST',
+            headers: HEADERS,
+            body: JSON.stringify(limitSell),
+          });
+          const sellData = await sellRes.json();
+          if (sellRes.ok) {
+            sellSuccess = true;
+            console.log(
+              `✅ Limit sell placed for ${symbol}: qty=${limitSell.qty} limit=${limitSell.limit_price}`,
+              sellData
+            );
+            Alert.alert(
+              '✅ Trade Executed',
+              `Sell order placed at $${limitSell.limit_price}`
+            );
+          } else {
+            console.error(`❌ Sell attempt ${attempt} failed:`, sellData);
+            if (attempt < 3) {
+              await sleep(5000);
+            }
+          }
+        } catch (sellErr) {
+          console.error(`❌ Sell error on attempt ${attempt}:`, sellErr);
+          if (attempt < 3) {
+            await sleep(5000);
+          }
         }
-      } catch (sellErr) {
-        Alert.alert('❌ Sell Failed', sellErr.message);
-        console.error('❌ Sell error:', sellErr);
+      }
+
+      if (!sellSuccess) {
+        Alert.alert('❌ Sell Failed', 'Unable to place sell order after retries');
       }
     } catch (err) {
       console.error('❌ Order error:', err);
