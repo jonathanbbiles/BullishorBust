@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Switch,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 
 const ALPACA_KEY = 'PKGY01ABISEXQJZX5L7M';
@@ -38,9 +39,9 @@ const ORIGINAL_TOKENS = [
   { name: 'XTZ/USD', symbol: 'XTZUSD', cc: 'XTZ' },
   { name: 'YFI/USD', symbol: 'YFIUSD', cc: 'YFI' },
   { name: 'GRT/USD', symbol: 'GRTUSD', cc: 'GRT' },
+  { name: 'USDC/USD', symbol: 'USDCUSD', cc: 'USDC' },
+  { name: 'USDT/USD', symbol: 'USDTUSD', cc: 'USDT' },
   { name: 'MKR/USD', symbol: 'MKRUSD', cc: 'MKR' },
-  { name: 'PEPE/USD', symbol: 'PEPEUSD', cc: 'PEPE' },
-  { name: 'SOL/USD', symbol: 'SOLUSD', cc: 'SOL' },
 ];
 
 export default function App() {
@@ -128,11 +129,14 @@ export default function App() {
         console.warn(`No chart data returned for ${ccSymbol}`);
         return;
       }
-      const closes = histoBars.map((bar) => bar.close);
+      const closes = Array.isArray(histoBars)
+        ? histoBars.map((bar) => bar.close)
+        : [];
 
       const rsi = calcRSI(closes);
       const rsiPrev = calcRSI(closes.slice(0, -1));
-      const rsiRising = rsiPrev != null && rsi != null && rsi > 50 && rsi > rsiPrev;
+      const rsiRising =
+        rsiPrev != null && rsi != null && rsi > 30 && rsi > rsiPrev;
       const { macd, signal } = calcMACD(closes);
 
       const trend = getTrendSymbol(closes);
@@ -151,21 +155,19 @@ export default function App() {
 
       const accountRes = await fetch(`${ALPACA_BASE_URL}/account`, { headers: HEADERS });
       const accountData = await accountRes.json();
-      const cash = parseFloat(accountData.cash || '0');
-      const qty = parseFloat((cash / price).toFixed(6));
+      const buyingPower = parseFloat(accountData.buying_power || accountData.cash || '0');
+      const qty = parseFloat(((buyingPower * 0.1) / price).toFixed(6));
       if (qty <= 0) {
         console.error('❌ Insufficient buying power');
         return;
       }
 
-      const limit_price = price.toFixed(2);
       const order = {
         symbol,
         qty,
         side: 'buy',
-        type: 'limit',
-        time_in_force: 'gtc',
-        limit_price,
+        type: 'market',
+        time_in_force: 'day',
       };
 
       const res = await fetch(`${ALPACA_BASE_URL}/orders`, {
@@ -181,8 +183,7 @@ export default function App() {
         return;
       }
 
-      Alert.alert('✅ Buy Success', `Buy placed for ${symbol} at $${limit_price}`);
-      console.log('✅ Buy order success:', orderData);
+      console.log('✅ Market buy placed:', orderData);
 
       // poll for fill status
       let filledOrder = null;
@@ -208,19 +209,20 @@ export default function App() {
         return;
       }
 
-      // Determine the basis price for the sell order. Prefer the actual filled
-      // average price if it's available and valid, otherwise fall back to the
-      // limit price used for the buy order.
       const filledPrice = parseFloat(filledOrder.filled_avg_price);
-      const sellBasis = isNaN(filledPrice) ? parseFloat(limit_price) : filledPrice;
+      const sellBasis = isNaN(filledPrice) ? price : filledPrice;
+
+      Alert.alert('✅ Buy Filled', `Bought ${symbol} at $${sellBasis.toFixed(2)}`);
+
+      await sleep(10000);
 
       const limitSell = {
         symbol,
         qty: filledOrder.filled_qty,
         side: 'sell',
         type: 'limit',
-        time_in_force: 'gtc',
-        limit_price: (sellBasis * 1.005).toFixed(2),
+        time_in_force: 'day',
+        limit_price: (sellBasis * 1.0025).toFixed(2),
       };
 
       try {
@@ -232,6 +234,7 @@ export default function App() {
         const sellData = await sellRes.json();
         if (sellRes.ok) {
           console.log('✅ Limit sell placed:', sellData);
+          Alert.alert('✅ Trade Executed', `Sell order placed at $${limitSell.limit_price}`);
         } else {
           Alert.alert('❌ Sell Failed', sellData.message || 'Unknown error');
           console.error('❌ Sell failed:', sellData);
@@ -264,22 +267,16 @@ export default function App() {
             : null;
           if (!histoBars) {
             console.warn(`No chart data returned for ${asset.symbol}`);
-            return {
-              ...asset,
-              price,
-              rsi: 'N/A',
-              rsiRising: false,
-              trend: 'N/A',
-              entryReady: false,
-              watchlist: false,
-              time: new Date().toLocaleTimeString(),
-            };
+            return null;
           }
-          const closes = histoBars.map((bar) => bar.close);
+          const closes = Array.isArray(histoBars)
+            ? histoBars.map((bar) => bar.close)
+            : [];
 
           const rsi = calcRSI(closes);
           const rsiPrev = calcRSI(closes.slice(0, -1));
-          const rsiRising = rsiPrev != null && rsi != null && rsi > 36 && rsi > rsiPrev;
+          const rsiRising =
+            rsiPrev != null && rsi != null && rsi > 30 && rsi > rsiPrev;
           const { macd, signal } = calcMACD(closes);
 
           const trend = getTrendSymbol(closes);
@@ -312,7 +309,8 @@ export default function App() {
         }
       })
     );
-    const sorted = results.sort((a, b) => {
+    const filtered = results.filter(Boolean);
+    const sorted = filtered.sort((a, b) => {
       if (a.entryReady) return -1;
       if (b.entryReady) return 1;
       if (a.watchlist) return -1;
@@ -336,8 +334,13 @@ export default function App() {
 
   const renderCard = (asset) => {
     const borderColor = asset.entryReady ? 'green' : asset.watchlist ? '#FFA500' : 'red';
+    const cardStyle = [
+      styles.card,
+      { borderLeftColor: borderColor },
+      asset.watchlist && !asset.entryReady && styles.cardWatchlist,
+    ];
     return (
-      <View key={asset.symbol} style={[styles.card, { borderLeftColor: borderColor }]}>
+      <View key={asset.symbol} style={cardStyle}>
         <Text style={styles.symbol}>
           {asset.name} ({asset.symbol})
         </Text>
@@ -378,22 +381,23 @@ export default function App() {
         <Switch value={autoTrade} onValueChange={setAutoTrade} />
       </View>
 
-      {entryReadyTokens.length > 0 && (
+      {entryReadyTokens.length > 0 ? (
         <>
           <Text style={styles.sectionHeader}>✅ Entry Ready</Text>
           <View style={styles.cardGrid}>{entryReadyTokens.map(renderCard)}</View>
         </>
+      ) : (
+        <View style={styles.waiting}>
+          <ActivityIndicator size="large" color="#888" />
+          <Text style={styles.noData}>Waiting for signals...</Text>
+        </View>
       )}
 
-      {watchlistTokens.length > 0 && (
-        <>
-          <Text style={styles.sectionHeader}>🟧 Watchlist</Text>
-          <View style={styles.cardGrid}>{watchlistTokens.map(renderCard)}</View>
-        </>
-      )}
-
-      {entryReadyTokens.length === 0 && watchlistTokens.length === 0 && (
-        <Text style={styles.noData}>No tokens meet entry conditions</Text>
+      <Text style={styles.sectionHeader}>🟧 Watchlist</Text>
+      {watchlistTokens.length > 0 ? (
+        <View style={styles.cardGrid}>{watchlistTokens.map(renderCard)}</View>
+      ) : (
+        <Text style={styles.noData}>No watchlist tokens</Text>
       )}
     </ScrollView>
   );
@@ -423,11 +427,16 @@ const styles = StyleSheet.create({
     borderLeftWidth: 5,
     marginBottom: 10,
   },
+  cardWatchlist: {
+    borderColor: '#FFA500',
+    borderWidth: 2,
+  },
   symbol: { fontSize: 15, fontWeight: 'bold', color: '#005eff' },
   error: { color: 'red', fontSize: 12 },
   buyButton: { color: '#0066cc', marginTop: 8, fontWeight: 'bold' },
   noData: { textAlign: 'center', marginTop: 20, fontStyle: 'italic', color: '#777' },
   entryReady: { color: 'green', fontWeight: 'bold' },
   watchlist: { color: '#FFA500', fontWeight: 'bold' },
+  waiting: { alignItems: 'center', marginTop: 20 },
   sectionHeader: { fontSize: 16, fontWeight: 'bold', marginBottom: 5, marginTop: 10 },
 });
