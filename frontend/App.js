@@ -38,8 +38,6 @@ const ORIGINAL_TOKENS = [
   { name: 'XTZ/USD', symbol: 'XTZUSD', cc: 'XTZ' },
   { name: 'YFI/USD', symbol: 'YFIUSD', cc: 'YFI' },
   { name: 'GRT/USD', symbol: 'GRTUSD', cc: 'GRT' },
-  { name: 'USDC/USD', symbol: 'USDCUSD', cc: 'USDC' },
-  { name: 'USDT/USD', symbol: 'USDTUSD', cc: 'USDT' },
   { name: 'MKR/USD', symbol: 'MKRUSD', cc: 'MKR' },
 ];
 
