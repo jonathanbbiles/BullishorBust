@@ -39,8 +39,6 @@ const ORIGINAL_TOKENS = [
   { name: 'YFI/USD', symbol: 'YFIUSD', cc: 'YFI' },
   { name: 'GRT/USD', symbol: 'GRTUSD', cc: 'GRT' },
   { name: 'MKR/USD', symbol: 'MKRUSD', cc: 'MKR' },
-  { name: 'USDC/USD', symbol: 'USDCUSD', cc: 'USDC' },
-  { name: 'USDT/USD', symbol: 'USDTUSD', cc: 'USDT' },
 ];
 
 export default function App() {
@@ -110,7 +108,6 @@ export default function App() {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   const placeOrder = async (symbol, ccSymbol = symbol, isManual = false) => {
-    if (!autoTrade && !isManual) return;
     try {
       const priceRes = await fetch(
         `https://min-api.cryptocompare.com/data/price?fsym=${ccSymbol}&tsyms=USD`
@@ -137,8 +134,11 @@ export default function App() {
 
       const shouldBuy = macd != null && signal != null && macd > signal;
 
-      if (!shouldBuy && !isManual) {
+      if (!shouldBuy) {
         console.log(`Entry conditions not met for ${symbol}`);
+        if (isManual) {
+          Alert.alert('❌ Entry Not Ready', 'MACD must be above signal');
+        }
         return;
       }
 
@@ -210,6 +210,8 @@ export default function App() {
         type: 'limit',
         time_in_force: 'gtc',
         limit_price: (sellBasis * 1.0025).toFixed(2),
+        extended_hours: false,
+        allow_partial_fills: false,
       };
 
       try {
