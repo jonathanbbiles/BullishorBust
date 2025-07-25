@@ -8,7 +8,6 @@ import {
   TouchableOpacity,
   Switch,
 } from 'react-native';
-import Toast from 'react-native-root-toast';
 
 const ALPACA_KEY = 'PKGY01ABISEXQJZX5L7M';
 const ALPACA_SECRET = 'PwJAEwLnLnsf7qAVvFutE8VIMgsAgvi7PMkMcCca';
@@ -51,6 +50,12 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(false);
   const [autoTrade, setAutoTrade] = useState(false);
   const [hideOthers, setHideOthers] = useState(false);
+  const [notification, setNotification] = useState(null);
+
+  const showNotification = (message) => {
+    setNotification(message);
+    setTimeout(() => setNotification(null), 2000);
+  };
 
   const calcRSI = (closes, period = 14) => {
     if (closes.length < period + 1) return null;
@@ -160,10 +165,7 @@ export default function App() {
 
       if (cash < 10) {
         if (isManual) {
-          Toast.show('❌ Order Failed: Insufficient cash', {
-            duration: Toast.durations.SHORT,
-            position: Toast.positions.BOTTOM,
-          });
+          showNotification('❌ Order Failed: Insufficient cash');
         } else {
           insufficientFundsThisCycle = true;
           console.log('Insufficient funds, skipping remaining buys this cycle');
@@ -182,10 +184,7 @@ export default function App() {
       // Skip buy silently if not enough cash for auto trades
       if (qty <= 0) {
         if (isManual) {
-          Toast.show('❌ Order Failed: Insufficient cash', {
-            duration: Toast.durations.SHORT,
-            position: Toast.positions.BOTTOM,
-          });
+          showNotification('❌ Order Failed: Insufficient cash');
         } else {
           insufficientFundsThisCycle = true;
           console.log('Insufficient funds, skipping remaining buys this cycle');
@@ -213,13 +212,7 @@ export default function App() {
       if (!res.ok) {
         console.error('❌ Order failed:', orderData);
         if (isManual) {
-          Toast.show(
-            `❌ Order Failed: ${orderData.message || 'Unknown error'}`,
-            {
-              duration: Toast.durations.SHORT,
-              position: Toast.positions.BOTTOM,
-            }
-          );
+          showNotification(`❌ Order Failed: ${orderData.message || 'Unknown error'}`);
         }
         return;
       }
@@ -253,10 +246,7 @@ export default function App() {
       const filledPrice = parseFloat(filledOrder.filled_avg_price);
       const sellBasis = isNaN(filledPrice) ? price : filledPrice;
 
-      Toast.show(`✅ Buy Filled: ${symbol} at $${sellBasis.toFixed(2)}`, {
-        duration: Toast.durations.SHORT,
-        position: Toast.positions.BOTTOM,
-      });
+      showNotification(`✅ Buy Filled: ${symbol} at $${sellBasis.toFixed(2)}`);
 
       // Wait a short period to ensure the position settles before selling
       await sleep(5000);
@@ -331,12 +321,8 @@ export default function App() {
               `✅ Limit sell placed for ${symbol}: qty=${limitSell.qty} limit=${limitSell.limit_price}`,
               sellData
             );
-            Toast.show(
-              `✅ Trade Executed: Sell order placed at $${limitSell.limit_price}`,
-              {
-                duration: Toast.durations.SHORT,
-                position: Toast.positions.BOTTOM,
-              }
+            showNotification(
+              `✅ Trade Executed: Sell order placed at $${limitSell.limit_price}`
             );
           } else {
             lastStatus = sellRes.status;
@@ -373,12 +359,8 @@ export default function App() {
         const qtyPart = match
           ? `Requested: ${match[1]}\nAvailable: ${match[2]}\n`
           : '';
-        Toast.show(
-          `❌ Sell Failed: ${statusPart}${msgPart}\n${qtyPart}Unable to place sell order after retries`,
-          {
-            duration: Toast.durations.SHORT,
-            position: Toast.positions.BOTTOM,
-          }
+        showNotification(
+          `❌ Sell Failed: ${statusPart}${msgPart}\n${qtyPart}Unable to place sell order after retries`
         );
       }
     } catch (err) {
@@ -564,6 +546,22 @@ export default function App() {
             <Text style={styles.noData}>No other tokens</Text>
           )}
         </>
+      )}
+      {notification && (
+        <View
+          style={{
+            position: 'absolute',
+            bottom: 40,
+            left: 20,
+            right: 20,
+            padding: 12,
+            backgroundColor: '#333',
+            borderRadius: 8,
+            zIndex: 999,
+          }}
+        >
+          <Text style={{ color: '#fff', textAlign: 'center' }}>{notification}</Text>
+        </View>
       )}
     </ScrollView>
   );
