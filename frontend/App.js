@@ -156,12 +156,18 @@ export default function App() {
 
       const accountRes = await fetch(`${ALPACA_BASE_URL}/account`, { headers: HEADERS });
       const accountData = await accountRes.json();
-      const buyingPower = parseFloat(accountData.buying_power || accountData.cash || '0');
-      const qty = parseFloat(((buyingPower * 0.1) / price).toFixed(6));
+      const cash = parseFloat(accountData.cash || '0');
+      let qty = parseFloat(((cash * 0.1) / price).toFixed(6));
+      if (qty * price > cash) {
+        qty = parseFloat((cash / price).toFixed(6));
+      }
+      if (qty <= 0 && cash > 0) {
+        qty = parseFloat((cash / price).toFixed(6));
+      }
       // Skip buy silently if not enough cash for auto trades
       if (qty <= 0) {
         if (isManual) {
-          Alert.alert('❌ Order Failed', 'Insufficient buying power');
+          Alert.alert('❌ Order Failed', 'Insufficient cash');
         } else {
           insufficientFundsThisCycle = true;
           console.log('Insufficient funds, skipping remaining buys this cycle');
