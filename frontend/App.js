@@ -8,7 +8,6 @@ import {
   TouchableOpacity,
   Switch,
   Alert,
-  ActivityIndicator,
 } from 'react-native';
 
 const ALPACA_KEY = 'PKGY01ABISEXQJZX5L7M';
@@ -50,6 +49,7 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [autoTrade, setAutoTrade] = useState(false);
+  const [hideOthers, setHideOthers] = useState(false);
 
   const calcRSI = (closes, period = 14) => {
     if (closes.length < period + 1) return null;
@@ -309,15 +309,7 @@ export default function App() {
         }
       })
     );
-    const filtered = results.filter(Boolean);
-    const sorted = filtered.sort((a, b) => {
-      if (a.entryReady) return -1;
-      if (b.entryReady) return 1;
-      if (a.watchlist) return -1;
-      if (b.watchlist) return 1;
-      return 0;
-    });
-    setData(sorted);
+    setData(results);
     setRefreshing(false);
   };
 
@@ -367,8 +359,15 @@ export default function App() {
     );
   };
 
-  const entryReadyTokens = data.filter((t) => t.entryReady);
-  const watchlistTokens = data.filter((t) => !t.entryReady && t.watchlist);
+  const entryReadyTokens = data
+    .filter((t) => t.entryReady)
+    .sort((a, b) => a.symbol.localeCompare(b.symbol));
+  const watchlistTokens = data
+    .filter((t) => !t.entryReady && t.watchlist)
+    .sort((a, b) => a.symbol.localeCompare(b.symbol));
+  const otherTokens = data
+    .filter((t) => !t.entryReady && !t.watchlist)
+    .sort((a, b) => a.symbol.localeCompare(b.symbol));
 
   return (
     <ScrollView
@@ -380,24 +379,34 @@ export default function App() {
         <Text style={[styles.title, darkMode && styles.titleDark]}>🎭 Bullish or Bust!</Text>
         <Switch value={autoTrade} onValueChange={setAutoTrade} />
       </View>
+      <View style={styles.row}>
+        <Text style={[styles.title, darkMode && styles.titleDark]}>Hide Others</Text>
+        <Switch value={hideOthers} onValueChange={setHideOthers} />
+      </View>
 
+      <Text style={styles.sectionHeader}>✅ Entry Ready</Text>
       {entryReadyTokens.length > 0 ? (
-        <>
-          <Text style={styles.sectionHeader}>✅ Entry Ready</Text>
-          <View style={styles.cardGrid}>{entryReadyTokens.map(renderCard)}</View>
-        </>
+        <View style={styles.cardGrid}>{entryReadyTokens.map(renderCard)}</View>
       ) : (
-        <View style={styles.waiting}>
-          <ActivityIndicator size="large" color="#888" />
-          <Text style={styles.noData}>Waiting for signals...</Text>
-        </View>
+        <Text style={styles.noData}>No Entry Ready tokens</Text>
       )}
 
       <Text style={styles.sectionHeader}>🟧 Watchlist</Text>
       {watchlistTokens.length > 0 ? (
         <View style={styles.cardGrid}>{watchlistTokens.map(renderCard)}</View>
       ) : (
-        <Text style={styles.noData}>No watchlist tokens</Text>
+        <Text style={styles.noData}>No Watchlist tokens</Text>
+      )}
+
+      {!hideOthers && (
+        <>
+          <Text style={styles.sectionHeader}>❌ Others</Text>
+          {otherTokens.length > 0 ? (
+            <View style={styles.cardGrid}>{otherTokens.map(renderCard)}</View>
+          ) : (
+            <Text style={styles.noData}>No other tokens</Text>
+          )}
+        </>
       )}
     </ScrollView>
   );
