@@ -20,6 +20,9 @@ const HEADERS = {
   'Content-Type': 'application/json',
 };
 
+// Track if we ran out of funds during this refresh cycle
+let insufficientFundsThisCycle = false;
+
 const ORIGINAL_TOKENS = [
   { name: 'BTC/USD', symbol: 'BTCUSD', cc: 'BTC' },
   { name: 'ETH/USD', symbol: 'ETHUSD', cc: 'ETH' },
@@ -109,6 +112,10 @@ export default function App() {
 
   const placeOrder = async (symbol, ccSymbol = symbol, isManual = false) => {
     if (!autoTrade && !isManual) return;
+    if (!isManual && insufficientFundsThisCycle) {
+      console.log('Skipping order due to insufficient funds this cycle');
+      return;
+    }
     try {
       const priceRes = await fetch(
         `https://min-api.cryptocompare.com/data/price?fsym=${ccSymbol}&tsyms=USD`
@@ -151,8 +158,14 @@ export default function App() {
       const accountData = await accountRes.json();
       const buyingPower = parseFloat(accountData.buying_power || accountData.cash || '0');
       const qty = parseFloat(((buyingPower * 0.1) / price).toFixed(6));
-      // Skip buy silently if not enough cash
+      // Skip buy silently if not enough cash for auto trades
       if (qty <= 0) {
+        if (isManual) {
+          Alert.alert('❌ Order Failed', 'Insufficient buying power');
+        } else {
+          insufficientFundsThisCycle = true;
+          console.log('Insufficient funds, skipping remaining buys this cycle');
+        }
         return;
       }
 
@@ -174,8 +187,10 @@ export default function App() {
       const orderData = await res.json();
 
       if (!res.ok) {
-        Alert.alert('❌ Order Failed', orderData.message || 'Unknown error');
         console.error('❌ Order failed:', orderData);
+        if (isManual) {
+          Alert.alert('❌ Order Failed', orderData.message || 'Unknown error');
+        }
         return;
       }
 
@@ -247,6 +262,7 @@ export default function App() {
   };
 
   const loadData = async () => {
+    insufficientFundsThisCycle = false;
     const results = [];
     for (const asset of tracked) {
       const token = {
