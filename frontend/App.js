@@ -96,6 +96,16 @@ export default function App() {
     return { macd: macdLine[macdLine.length - 1], signal };
   };
 
+  const calcEMA = (closes, period = 10) => {
+    if (closes.length < period) return null;
+    const k = 2 / (period + 1);
+    let ema = closes[0];
+    for (let i = 1; i < closes.length; i++) {
+      ema = closes[i] * k + ema * (1 - k);
+    }
+    return ema;
+  };
+
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   const placeOrder = async (symbol, ccSymbol = symbol, isManual = false) => {
@@ -115,17 +125,17 @@ export default function App() {
 
       const rsi = calcRSI(closes);
       const rsiPrev = calcRSI(closes.slice(0, -1));
-      const rsiRising = rsiPrev != null && rsi != null && rsi > rsiPrev;
+      const rsiRising = rsiPrev != null && rsi != null && rsi > 50 && rsi > rsiPrev;
       const { macd, signal } = calcMACD(closes);
+
       const trend = getTrendSymbol(closes);
 
-      const shouldBuy =
-        macd != null &&
-        signal != null &&
-        macd > signal &&
-        rsiRising &&
-        rsi >= 36 &&
-        (trend === '⬆️' || trend === '🟰');
+      const ema = calcEMA(closes, 10);
+      const emaPrev = calcEMA(closes.slice(0, -1), 10);
+      const pricePrev = closes[closes.length - 2];
+      const emaBreakout = ema != null && emaPrev != null && price > ema && pricePrev < emaPrev;
+
+      const shouldBuy = macd != null && signal != null && macd > signal && rsiRising && emaBreakout;
 
       if (!shouldBuy && !isManual) {
         console.log(`Entry conditions not met for ${symbol}`);
@@ -246,23 +256,19 @@ export default function App() {
 
           const rsi = calcRSI(closes);
           const rsiPrev = calcRSI(closes.slice(0, -1));
-          const rsiRising = rsiPrev != null && rsi != null && rsi > rsiPrev;
+          const rsiRising = rsiPrev != null && rsi != null && rsi > 50 && rsi > rsiPrev;
           const { macd, signal } = calcMACD(closes);
+
           const trend = getTrendSymbol(closes);
 
-          const entryReady =
-            macd != null &&
-            signal != null &&
-            macd > signal &&
-            rsiRising &&
-            rsi >= 36 &&
-            (trend === '⬆️' || trend === '🟰');
+          const ema = calcEMA(closes, 10);
+          const emaPrev = calcEMA(closes.slice(0, -1), 10);
+          const pricePrev = closes[closes.length - 2];
+          const emaBreakout = ema != null && emaPrev != null && price > ema && pricePrev < emaPrev;
 
-          const watchlist =
-            rsi >= 30 &&
-            (trend === '⬆️' || trend === '🟰') &&
-            rsiRising &&
-            !entryReady;
+          const entryReady = macd != null && signal != null && macd > signal && rsiRising && emaBreakout;
+
+          const watchlist = macd != null && signal != null && macd > signal && !entryReady;
 
           if (entryReady && autoTrade) {
             await placeOrder(asset.symbol, asset.cc);
