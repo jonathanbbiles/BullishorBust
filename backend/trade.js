@@ -24,8 +24,8 @@ async function placeLimitBuyThenSell(symbol, qty, limitPrice) {
       qty,
       side: 'buy',
       type: 'limit',
-      // use a simple day order so it works for crypto
-      time_in_force: 'day',
+      // crypto orders must be GTC
+      time_in_force: 'gtc',
       limit_price: limitPrice,
     },
     { headers: HEADERS }
@@ -58,8 +58,8 @@ async function placeLimitBuyThenSell(symbol, qty, limitPrice) {
       qty: filledOrder.filled_qty,
       side: 'sell',
       type: 'limit',
-      // match the buy order's day time in force
-      time_in_force: 'day',
+      // match the buy order's time in force
+      time_in_force: 'gtc',
       limit_price: sellPrice,
     },
     { headers: HEADERS }
@@ -114,7 +114,7 @@ async function placeMarketBuyThenSell(symbol) {
       qty,
       side: 'buy',
       type: 'market',
-      time_in_force: 'day',
+      time_in_force: 'gtc',
     },
     { headers: HEADERS }
   );
@@ -149,7 +149,7 @@ async function placeMarketBuyThenSell(symbol) {
         qty: filled.filled_qty,
         side: 'sell',
         type: 'limit',
-        time_in_force: 'day',
+        time_in_force: 'gtc',
         limit_price: limitPrice,
       },
       { headers: HEADERS }
