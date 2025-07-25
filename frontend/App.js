@@ -114,7 +114,11 @@ export default function App() {
         `https://min-api.cryptocompare.com/data/price?fsym=${ccSymbol}&tsyms=USD`
       );
       const priceData = await priceRes.json();
-      const price = priceData.USD;
+      const price = typeof priceData.USD === 'number' ? priceData.USD : null;
+      if (price == null) {
+        console.warn(`Price unavailable for ${ccSymbol}`);
+        return;
+      }
 
       const histoRes = await fetch(
         `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${ccSymbol}&tsym=USD&limit=52&aggregate=15`
@@ -125,7 +129,9 @@ export default function App() {
         : null;
       if (!histoBars) {
         console.warn(`No chart data returned for ${ccSymbol}`);
-        return;
+        if (!isManual) {
+          return;
+        }
       }
       const closes = Array.isArray(histoBars)
         ? histoBars.map((bar) => bar.close)
@@ -203,6 +209,8 @@ export default function App() {
       const sellBasis = isNaN(filledPrice) ? price : filledPrice;
 
       Alert.alert('✅ Buy Filled', `Bought ${symbol} at $${sellBasis.toFixed(2)}`);
+
+      await sleep(10000);
 
       const limitSell = {
         symbol,
