@@ -1,6 +1,7 @@
 const axios = require('axios');
 
 const ALPACA_BASE_URL = 'https://paper-api.alpaca.markets/v2';
+const DATA_URL = 'https://data.alpaca.markets/v1beta2';
 const API_KEY = process.env.ALPACA_API_KEY;
 const SECRET_KEY = process.env.ALPACA_SECRET_KEY;
 
@@ -67,4 +68,100 @@ async function placeLimitBuyThenSell(symbol, qty, limitPrice) {
   return { buy: filledOrder, sell: sellRes.data };
 }
 
-module.exports = { placeLimitBuyThenSell };
+// Fetch latest trade price for a symbol
+async function getLatestPrice(symbol) {
+  const res = await axios.get(
+    `${DATA_URL}/crypto/latest/trades?symbols=${symbol}`,
+    { headers: HEADERS }
+  );
+  const trade = res.data.trades && res.data.trades[symbol];
+  if (!trade) throw new Error(`Price not available for ${symbol}`);
+  return parseFloat(trade.p);
+}
+
+// Get available cash in the Alpaca account
+async function getAccountCash() {
+  const res = await axios.get(`${ALPACA_BASE_URL}/account`, { headers: HEADERS });
+  return parseFloat(res.data.cash);
+}
+
+// Round quantities to Alpaca's supported crypto precision
+function roundQty(qty) {
+  return parseFloat(Number(qty).toFixed(8));
+}
+
+// Round prices to two decimals
+function roundPrice(price) {
+  return parseFloat(Number(price).toFixed(2));
+}
+
+// Market buy using 10% of cash then place a limit sell 0.5% higher
+async function placeMarketBuyThenSell(symbol) {
+  const [price, cash] = await Promise.all([
+    getLatestPrice(symbol),
+    getAccountCash(),
+  ]);
+
+  const qty = roundQty((cash * 0.1) / price);
+  if (qty <= 0) {
+    throw new Error('Insufficient cash for trade');
+  }
+
+  const buyRes = await axios.post(
+    `${ALPACA_BASE_URL}/orders`,
+    {
+      symbol,
+      qty,
+      side: 'buy',
+      type: 'market',
+      time_in_force: 'day',
+    },
+    { headers: HEADERS }
+  );
+
+  const buyOrder = buyRes.data;
+
+  // Wait for fill
+  let filled = buyOrder;
+  for (let i = 0; i < 20; i++) {
+    const chk = await axios.get(`${ALPACA_BASE_URL}/orders/${buyOrder.id}`, {
+      headers: HEADERS,
+    });
+    filled = chk.data;
+    if (filled.status === 'filled') break;
+    await sleep(3000);
+  }
+
+  if (filled.status !== 'filled') {
+    throw new Error('Buy order not filled in time');
+  }
+
+  // Wait 10 seconds before selling
+  await sleep(10000);
+
+  const limitPrice = roundPrice(parseFloat(filled.filled_avg_price) * 1.005);
+
+  try {
+    const sellRes = await axios.post(
+      `${ALPACA_BASE_URL}/orders`,
+      {
+        symbol,
+        qty: filled.filled_qty,
+        side: 'sell',
+        type: 'limit',
+        time_in_force: 'day',
+        limit_price: limitPrice,
+      },
+      { headers: HEADERS }
+    );
+    return { buy: filled, sell: sellRes.data };
+  } catch (err) {
+    console.error('Sell order failed:', err?.response?.data || err.message);
+    return { buy: filled, sell: null, sellError: err.message };
+  }
+}
+
+module.exports = {
+  placeLimitBuyThenSell,
+  placeMarketBuyThenSell,
+};
