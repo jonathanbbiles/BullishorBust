@@ -108,7 +108,6 @@ export default function App() {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   const placeOrder = async (symbol, ccSymbol = symbol, isManual = false) => {
-    if (!autoTrade && !isManual) return;
     try {
       const priceRes = await fetch(
         `https://min-api.cryptocompare.com/data/price?fsym=${ccSymbol}&tsyms=USD`
@@ -142,8 +141,11 @@ export default function App() {
 
       const shouldBuy = macd != null && signal != null && macd > signal;
 
-      if (!shouldBuy && !isManual) {
+      if (!shouldBuy) {
         console.log(`Entry conditions not met for ${symbol}`);
+        if (isManual) {
+          Alert.alert('❌ Entry Not Ready', 'MACD must be above signal');
+        }
         return;
       }
 
@@ -221,6 +223,8 @@ export default function App() {
         order_class: 'simple',
         extended_hours: true,
         limit_price: (sellBasis * 1.0025).toFixed(2),
+        extended_hours: false,
+        allow_partial_fills: false,
       };
 
       try {
