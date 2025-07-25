@@ -309,7 +309,8 @@ export default function App() {
         }
       })
     );
-    setData(results);
+    // Filter out null/undefined entries to avoid crashing renderCard
+    setData(results.filter(Boolean));
     setRefreshing(false);
   };
 
