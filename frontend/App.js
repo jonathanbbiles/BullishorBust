@@ -210,14 +210,14 @@ export default function App() {
 
       Alert.alert('✅ Buy Filled', `Bought ${symbol} at $${sellBasis.toFixed(2)}`);
 
-      await sleep(10000);
+      await sleep(15000);
 
       const limitSell = {
         symbol,
         qty: filledOrder.filled_qty,
         side: 'sell',
         type: 'limit',
-        time_in_force: 'fok',
+        time_in_force: 'gtc',
         order_class: 'simple',
         extended_hours: true,
         limit_price: (sellBasis * 1.0025).toFixed(2),
