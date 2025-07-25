@@ -133,23 +133,9 @@ export default function App() {
         ? histoBars.map((bar) => bar.close)
         : [];
 
-      const rsi = calcRSI(closes);
-      const rsiPrev = calcRSI(closes.slice(0, -1));
-      const rsiRising =
-        rsiPrev != null && rsi != null && rsi > 30 && rsi > rsiPrev;
       const { macd, signal } = calcMACD(closes);
 
-      const trend = getTrendSymbol(closes);
-
-      const ema = calcEMA(closes, 10);
-      const emaPrev = calcEMA(closes.slice(0, -1), 10);
-      const pricePrev = closes[closes.length - 2];
-      const emaBreakout = ema != null && emaPrev != null && price > ema && pricePrev < emaPrev;
-
-      const shouldBuy =
-        (macd != null && signal != null && macd > signal) ||
-        rsiRising ||
-        trend === '⬆️';
+      const shouldBuy = macd != null && signal != null && macd > signal;
 
       if (!shouldBuy && !isManual) {
         console.log(`Entry conditions not met for ${symbol}`);
@@ -217,8 +203,6 @@ export default function App() {
 
       Alert.alert('✅ Buy Filled', `Bought ${symbol} at $${sellBasis.toFixed(2)}`);
 
-      await sleep(10000);
-
       const limitSell = {
         symbol,
         qty: filledOrder.filled_qty,
@@ -267,29 +251,27 @@ export default function App() {
           const histoData = await histoRes.json();
           const histoBars = Array.isArray(histoData?.Data?.Data)
             ? histoData.Data.Data
-            : null;
-          if (!histoBars) {
-            console.warn(`No chart data returned for ${asset.symbol}`);
-            return null;
-          }
-          const closes = Array.isArray(histoBars)
-            ? histoBars.map((bar) => bar.close)
             : [];
 
+          if (histoBars.length === 0) {
+            console.warn(`No chart data returned for ${asset.symbol}`);
+          }
+
+          const closes = histoBars.map((bar) => bar.close);
+
           const rsi = calcRSI(closes);
-          const rsiPrev = calcRSI(closes.slice(0, -1));
-          const rsiRising =
-            rsiPrev != null && rsi != null && rsi > 30 && rsi > rsiPrev;
-          const { macd, signal } = calcMACD(closes);
-
           const trend = getTrendSymbol(closes);
+          const { macd, signal } = calcMACD(closes);
+          const prev = calcMACD(closes.slice(0, -1));
 
-          const entryReady =
-            (macd != null && signal != null && macd > signal) ||
-            rsiRising ||
-            trend === '⬆️';
+          const entryReady = macd != null && signal != null && macd > signal;
 
-          const watchlist = macd != null && signal != null && macd > signal && !entryReady;
+          const watchlist =
+            macd != null &&
+            signal != null &&
+            prev.macd != null &&
+            macd > prev.macd &&
+            macd <= signal;
 
           if (entryReady && autoTrade) {
             await placeOrder(asset.symbol, asset.cc);
@@ -299,7 +281,6 @@ export default function App() {
             ...asset,
             price,
             rsi: rsi?.toFixed(1),
-            rsiRising,
             trend,
             entryReady,
             watchlist,
@@ -310,8 +291,7 @@ export default function App() {
         }
       })
     );
-    // Filter out null/undefined entries to avoid crashing renderCard
-    setData(results.filter(Boolean));
+    setData(results);
     setRefreshing(false);
   };
 
