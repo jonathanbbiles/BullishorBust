@@ -1,12 +1,25 @@
 require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
+const { placeLimitBuyThenSell } = require('./trade');
 const app = express();
 app.use(express.json());
 
 const ALPACA_BASE_URL = 'https://paper-api.alpaca.markets/v2';
 const API_KEY = process.env.ALPACA_API_KEY;
 const SECRET_KEY = process.env.ALPACA_SECRET_KEY;
+
+// Sequentially place a limit buy order followed by a limit sell once filled
+app.post('/trade', async (req, res) => {
+  const { symbol, qty, limit_price } = req.body;
+  try {
+    const result = await placeLimitBuyThenSell(symbol, qty, limit_price);
+    res.json(result);
+  } catch (err) {
+    console.error('Trade error:', err?.response?.data || err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.post('/buy', async (req, res) => {
   const { symbol, qty, side, type, time_in_force, limit_price } = req.body;
