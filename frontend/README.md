@@ -8,7 +8,9 @@ Tokens are flagged **ENTRY READY** when the MACD line is above the signal line. 
 
 ## Setup
 
-1. `npm install`
+1. `npm install` (installs dependencies including `react-native-root-toast`)
 2. Copy `.env.example` to `.env`
 3. Start backend (Node.js Express server)
 4. Run: `npm start` (Expo)
+
+Toast notifications are powered by `react-native-root-toast` and work in Expo Go without extra configuration.
