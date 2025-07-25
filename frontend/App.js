@@ -39,6 +39,8 @@ const ORIGINAL_TOKENS = [
   { name: 'YFI/USD', symbol: 'YFIUSD', cc: 'YFI' },
   { name: 'GRT/USD', symbol: 'GRTUSD', cc: 'GRT' },
   { name: 'MKR/USD', symbol: 'MKRUSD', cc: 'MKR' },
+  { name: 'USDC/USD', symbol: 'USDCUSD', cc: 'USDC' },
+  { name: 'USDT/USD', symbol: 'USDTUSD', cc: 'USDT' },
 ];
 
 export default function App() {
@@ -154,7 +156,7 @@ export default function App() {
         qty,
         side: 'buy',
         type: 'market',
-        time_in_force: 'day',
+        time_in_force: 'gtc',
       };
 
       const res = await fetch(`${ALPACA_BASE_URL}/orders`, {
@@ -206,7 +208,7 @@ export default function App() {
         qty: filledOrder.filled_qty,
         side: 'sell',
         type: 'limit',
-        time_in_force: 'day',
+        time_in_force: 'gtc',
         limit_price: (sellBasis * 1.0025).toFixed(2),
       };
 
