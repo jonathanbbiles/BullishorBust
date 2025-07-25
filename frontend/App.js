@@ -279,17 +279,17 @@ export default function App() {
 
           const rsi = calcRSI(closes);
           const rsiPrev = calcRSI(closes.slice(0, -1));
-          const rsiRising = rsiPrev != null && rsi != null && rsi > 50 && rsi > rsiPrev;
+          const rsiRising = rsiPrev != null && rsi != null && rsi > 36 && rsi > rsiPrev;
           const { macd, signal } = calcMACD(closes);
 
           const trend = getTrendSymbol(closes);
 
-          const ema = calcEMA(closes, 10);
-          const emaPrev = calcEMA(closes.slice(0, -1), 10);
-          const pricePrev = closes[closes.length - 2];
-          const emaBreakout = ema != null && emaPrev != null && price > ema && pricePrev < emaPrev;
-
-          const entryReady = macd != null && signal != null && macd > signal && rsiRising && emaBreakout;
+          const entryReady =
+            macd != null &&
+            signal != null &&
+            macd > signal &&
+            rsiRising &&
+            (trend === '⬆️' || trend === '🟰');
 
           const watchlist = macd != null && signal != null && macd > signal && !entryReady;
 
@@ -348,6 +348,9 @@ export default function App() {
             {asset.entryReady && (
               <Text style={styles.entryReady}>✅ ENTRY READY</Text>
             )}
+            {asset.watchlist && !asset.entryReady && (
+              <Text style={styles.watchlist}>🟧 WATCHLIST</Text>
+            )}
             <Text>Price: ${asset.price}</Text>
             <Text>RSI: {asset.rsi}</Text>
             <Text>Trend: {asset.trend}</Text>
@@ -361,6 +364,9 @@ export default function App() {
     );
   };
 
+  const entryReadyTokens = data.filter((t) => t.entryReady);
+  const watchlistTokens = data.filter((t) => !t.entryReady && t.watchlist);
+
   return (
     <ScrollView
       contentContainerStyle={[styles.container, darkMode && styles.containerDark]}
@@ -371,13 +377,24 @@ export default function App() {
         <Text style={[styles.title, darkMode && styles.titleDark]}>🎭 Bullish or Bust!</Text>
         <Switch value={autoTrade} onValueChange={setAutoTrade} />
       </View>
-      <View style={styles.cardGrid}>
-        {data.length > 0 && data.some((d) => d.entryReady || d.watchlist) ? (
-          data.map(renderCard)
-        ) : (
-          <Text style={styles.noData}>No tokens meet entry conditions</Text>
-        )}
-      </View>
+
+      {entryReadyTokens.length > 0 && (
+        <>
+          <Text style={styles.sectionHeader}>✅ Entry Ready</Text>
+          <View style={styles.cardGrid}>{entryReadyTokens.map(renderCard)}</View>
+        </>
+      )}
+
+      {watchlistTokens.length > 0 && (
+        <>
+          <Text style={styles.sectionHeader}>🟧 Watchlist</Text>
+          <View style={styles.cardGrid}>{watchlistTokens.map(renderCard)}</View>
+        </>
+      )}
+
+      {entryReadyTokens.length === 0 && watchlistTokens.length === 0 && (
+        <Text style={styles.noData}>No tokens meet entry conditions</Text>
+      )}
     </ScrollView>
   );
 }
@@ -411,4 +428,6 @@ const styles = StyleSheet.create({
   buyButton: { color: '#0066cc', marginTop: 8, fontWeight: 'bold' },
   noData: { textAlign: 'center', marginTop: 20, fontStyle: 'italic', color: '#777' },
   entryReady: { color: 'green', fontWeight: 'bold' },
+  watchlist: { color: '#FFA500', fontWeight: 'bold' },
+  sectionHeader: { fontSize: 16, fontWeight: 'bold', marginBottom: 5, marginTop: 10 },
 });
