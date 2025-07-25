@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
-const { placeLimitBuyThenSell } = require('./trade');
+const { placeMarketBuyThenSell } = require('./trade');
 const app = express();
 app.use(express.json());
 
@@ -11,9 +11,9 @@ const SECRET_KEY = process.env.ALPACA_SECRET_KEY;
 
 // Sequentially place a limit buy order followed by a limit sell once filled
 app.post('/trade', async (req, res) => {
-  const { symbol, qty, limit_price } = req.body;
+  const { symbol } = req.body;
   try {
-    const result = await placeLimitBuyThenSell(symbol, qty, limit_price);
+    const result = await placeMarketBuyThenSell(symbol);
     res.json(result);
   } catch (err) {
     console.error('Trade error:', err?.response?.data || err.message);
