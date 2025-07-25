@@ -225,25 +225,40 @@ export default function App() {
 
       Alert.alert('✅ Buy Filled', `Bought ${symbol} at $${sellBasis.toFixed(2)}`);
 
-      await sleep(15000);
+      // Wait a short period to ensure the position settles before selling
+      await sleep(5000);
 
+      // Always refetch the position before selling, retrying up to 3 times
       let positionQty = parseFloat(filledOrder.filled_qty);
-      try {
-        const posRes = await fetch(`${ALPACA_BASE_URL}/positions/${symbol}`, {
-          headers: HEADERS,
-        });
-        if (posRes.ok) {
-          const posData = await posRes.json();
-          const qtyFromPosition = parseFloat(posData.qty);
-          if (!isNaN(qtyFromPosition)) {
-            positionQty = qtyFromPosition;
+      for (let posAttempt = 1; posAttempt <= 3; posAttempt++) {
+        try {
+          const posRes = await fetch(`${ALPACA_BASE_URL}/positions/${symbol}`, {
+            headers: HEADERS,
+          });
+          if (posRes.ok) {
+            const posData = await posRes.json();
+            const qtyFromPosition = parseFloat(posData.qty);
+            if (!isNaN(qtyFromPosition)) {
+              positionQty = Math.min(positionQty, qtyFromPosition);
+              break;
+            }
+          } else {
+            console.warn(
+              `❌ Position fetch failed (status ${posRes.status}), attempt ${posAttempt}`
+            );
           }
-        } else {
-          console.warn('❌ Unable to fetch position, using filled qty');
+        } catch (posErr) {
+          console.error(
+            `❌ Position fetch error on attempt ${posAttempt}:`,
+            posErr
+          );
         }
-      } catch (posErr) {
-        console.error('❌ Position fetch error:', posErr);
+        if (posAttempt < 3) {
+          await sleep(1000);
+        }
       }
+      // clamp to 6 decimals for crypto precision
+      positionQty = parseFloat(positionQty.toFixed(6));
 
       const limitSell = {
         symbol,
@@ -261,7 +276,9 @@ export default function App() {
       let lastStatus = null;
       for (let attempt = 1; attempt <= 3 && !sellSuccess; attempt++) {
         const ts = new Date().toISOString();
-        console.log(`[${ts}] ⏳ Sell attempt ${attempt} with params:`, limitSell);
+        console.log(
+          `[${ts}] ⏳ Sell attempt ${attempt} with params: ${JSON.stringify(limitSell)}`
+        );
         try {
           const sellRes = await fetch(`${ALPACA_BASE_URL}/orders`, {
             method: 'POST',
@@ -291,6 +308,7 @@ export default function App() {
             console.error(
               `[${ts}] ❌ Sell attempt ${attempt} failed (status ${sellRes.status}):`,
               sellData,
+              JSON.stringify(limitSell),
               Array.from(sellRes.headers.entries())
             );
             if (attempt < 3) {
@@ -299,7 +317,11 @@ export default function App() {
           }
         } catch (sellErr) {
           lastErrorMsg = sellErr.message;
-          console.error(`[${ts}] ❌ Sell error on attempt ${attempt}:`, sellErr, limitSell);
+          console.error(
+            `[${ts}] ❌ Sell error on attempt ${attempt}:`,
+            sellErr,
+            JSON.stringify(limitSell)
+          );
           if (attempt < 3) {
             await sleep(5000);
           }
@@ -309,9 +331,15 @@ export default function App() {
       if (!sellSuccess) {
         const statusPart = lastStatus ? `Status: ${lastStatus}\n` : '';
         const msgPart = lastErrorMsg ? `Error: ${lastErrorMsg}` : 'Unknown error';
+        const match = /requested:\s*([0-9.]+),\s*available:\s*([0-9.]+)/i.exec(
+          lastErrorMsg || ''
+        );
+        const qtyPart = match
+          ? `Requested: ${match[1]}\nAvailable: ${match[2]}\n`
+          : '';
         Alert.alert(
           '❌ Sell Failed',
-          `${statusPart}${msgPart}\nUnable to place sell order after retries`
+          `${statusPart}${msgPart}\n${qtyPart}Unable to place sell order after retries`
         );
       }
     } catch (err) {
