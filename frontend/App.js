@@ -96,6 +96,8 @@ export default function App() {
     return { macd: macdLine[macdLine.length - 1], signal };
   };
 
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
   const placeOrder = async (symbol, ccSymbol = symbol, isManual = false) => {
     if (!autoTrade && !isManual) return;
     try {
@@ -120,7 +122,10 @@ export default function App() {
       const shouldBuy =
         macd != null &&
         signal != null &&
-        macd > signal;
+        macd > signal &&
+        rsiRising &&
+        rsi >= 36 &&
+        (trend === '⬆️' || trend === '🟰');
 
       if (!shouldBuy && !isManual) {
         console.log(`Entry conditions not met for ${symbol}`);
@@ -144,9 +149,6 @@ export default function App() {
         type: 'limit',
         time_in_force: 'gtc',
         limit_price,
-        order_class: 'bracket',
-        take_profit: { limit_price: (price * 1.005).toFixed(2) },
-        stop_loss: { stop_price: (price * 0.99).toFixed(2) },
       };
 
       const res = await fetch(`${ALPACA_BASE_URL}/orders`, {
@@ -154,17 +156,68 @@ export default function App() {
         headers: HEADERS,
         body: JSON.stringify(order),
       });
-      const data = await res.json();
+      const orderData = await res.json();
 
-      if (res.ok) {
-        Alert.alert('✅ Buy Success', `Bracket order placed for ${symbol} at $${limit_price}`);
-        console.log('✅ Bracket order success:', data);
-      } else {
-        Alert.alert('❌ Order Failed', data.message || 'Unknown error');
-        console.error('❌ Order failed:', data);
+      if (!res.ok) {
+        Alert.alert('❌ Order Failed', orderData.message || 'Unknown error');
+        console.error('❌ Order failed:', orderData);
+        return;
+      }
+
+      Alert.alert('✅ Buy Success', `Buy placed for ${symbol} at $${limit_price}`);
+      console.log('✅ Buy order success:', orderData);
+
+      // poll for fill status
+      let filledOrder = null;
+      for (let i = 0; i < 20; i++) {
+        try {
+          const statusRes = await fetch(`${ALPACA_BASE_URL}/orders/${orderData.id}`, {
+            headers: HEADERS,
+          });
+          const statusData = await statusRes.json();
+          if (statusData.status === 'filled') {
+            filledOrder = statusData;
+            break;
+          }
+        } catch (pollErr) {
+          console.error('❌ Poll error:', pollErr);
+          break;
+        }
+        await sleep(3000);
+      }
+
+      if (!filledOrder) {
+        console.log('❌ Buy not filled in time, aborting sell');
+        return;
+      }
+
+      const limitSell = {
+        symbol,
+        qty: filledOrder.filled_qty,
+        side: 'sell',
+        type: 'limit',
+        time_in_force: 'gtc',
+        limit_price: (parseFloat(filledOrder.filled_avg_price) * 1.005).toFixed(2),
+      };
+
+      try {
+        const sellRes = await fetch(`${ALPACA_BASE_URL}/orders`, {
+          method: 'POST',
+          headers: HEADERS,
+          body: JSON.stringify(limitSell),
+        });
+        const sellData = await sellRes.json();
+        if (sellRes.ok) {
+          console.log('✅ Limit sell placed:', sellData);
+        } else {
+          Alert.alert('❌ Sell Failed', sellData.message || 'Unknown error');
+          console.error('❌ Sell failed:', sellData);
+        }
+      } catch (sellErr) {
+        Alert.alert('❌ Sell Failed', sellErr.message);
+        console.error('❌ Sell error:', sellErr);
       }
     } catch (err) {
-      Alert.alert('❌ Order Error', err.message);
       console.error('❌ Order error:', err);
     }
   };
@@ -194,9 +247,16 @@ export default function App() {
           const entryReady =
             macd != null &&
             signal != null &&
-            macd > signal;
+            macd > signal &&
+            rsiRising &&
+            rsi >= 36 &&
+            (trend === '⬆️' || trend === '🟰');
 
-          const watchlist = rsi >= 30 && (trend === '⬆️' || trend === '🟰') && !entryReady;
+          const watchlist =
+            rsi >= 30 &&
+            (trend === '⬆️' || trend === '🟰') &&
+            rsiRising &&
+            !entryReady;
 
           if (entryReady && autoTrade) {
             await placeOrder(asset.symbol, asset.cc);
@@ -206,6 +266,7 @@ export default function App() {
             ...asset,
             price,
             rsi: rsi?.toFixed(1),
+            rsiRising,
             trend,
             entryReady,
             watchlist,
@@ -249,6 +310,9 @@ export default function App() {
           <Text style={styles.error}>Error: {asset.error}</Text>
         ) : (
           <>
+            {asset.entryReady && (
+              <Text style={styles.entryReady}>✅ ENTRY READY</Text>
+            )}
             <Text>Price: ${asset.price}</Text>
             <Text>RSI: {asset.rsi}</Text>
             <Text>Trend: {asset.trend}</Text>
@@ -311,4 +375,5 @@ const styles = StyleSheet.create({
   error: { color: 'red', fontSize: 12 },
   buyButton: { color: '#0066cc', marginTop: 8, fontWeight: 'bold' },
   noData: { textAlign: 'center', marginTop: 20, fontStyle: 'italic', color: '#777' },
+  entryReady: { color: 'green', fontWeight: 'bold' },
 });
