@@ -257,14 +257,24 @@ export default function App() {
       };
 
       let sellSuccess = false;
+      let lastErrorMsg = '';
+      let lastStatus = null;
       for (let attempt = 1; attempt <= 3 && !sellSuccess; attempt++) {
+        const ts = new Date().toISOString();
+        console.log(`[${ts}] ⏳ Sell attempt ${attempt} with params:`, limitSell);
         try {
           const sellRes = await fetch(`${ALPACA_BASE_URL}/orders`, {
             method: 'POST',
             headers: HEADERS,
             body: JSON.stringify(limitSell),
           });
-          const sellData = await sellRes.json();
+          const rawBody = await sellRes.text();
+          let sellData;
+          try {
+            sellData = JSON.parse(rawBody);
+          } catch (e) {
+            sellData = rawBody;
+          }
           if (sellRes.ok) {
             sellSuccess = true;
             console.log(
@@ -276,13 +286,20 @@ export default function App() {
               `Sell order placed at $${limitSell.limit_price}`
             );
           } else {
-            console.error(`❌ Sell attempt ${attempt} failed:`, sellData);
+            lastStatus = sellRes.status;
+            lastErrorMsg = sellData?.message || JSON.stringify(sellData);
+            console.error(
+              `[${ts}] ❌ Sell attempt ${attempt} failed (status ${sellRes.status}):`,
+              sellData,
+              Array.from(sellRes.headers.entries())
+            );
             if (attempt < 3) {
               await sleep(5000);
             }
           }
         } catch (sellErr) {
-          console.error(`❌ Sell error on attempt ${attempt}:`, sellErr);
+          lastErrorMsg = sellErr.message;
+          console.error(`[${ts}] ❌ Sell error on attempt ${attempt}:`, sellErr, limitSell);
           if (attempt < 3) {
             await sleep(5000);
           }
@@ -290,7 +307,12 @@ export default function App() {
       }
 
       if (!sellSuccess) {
-        Alert.alert('❌ Sell Failed', 'Unable to place sell order after retries');
+        const statusPart = lastStatus ? `Status: ${lastStatus}\n` : '';
+        const msgPart = lastErrorMsg ? `Error: ${lastErrorMsg}` : 'Unknown error';
+        Alert.alert(
+          '❌ Sell Failed',
+          `${statusPart}${msgPart}\nUnable to place sell order after retries`
+        );
       }
     } catch (err) {
       console.error('❌ Order error:', err);
