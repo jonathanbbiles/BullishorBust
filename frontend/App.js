@@ -115,6 +115,106 @@ export default function App() {
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  const getPositionInfo = async (symbol) => {
+    try {
+      const res = await fetch(`${ALPACA_BASE_URL}/positions/${symbol}`, {
+        headers: HEADERS,
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const qty = parseFloat(data.qty);
+      const basis = parseFloat(data.avg_entry_price);
+      if (isNaN(qty) || qty <= 0) return null;
+      return { qty: parseFloat(qty.toFixed(6)), basis };
+    } catch (err) {
+      console.error('Position fetch error:', err);
+      return null;
+    }
+  };
+
+  const placeLimitSell = async (symbol, qty, sellBasis) => {
+    const limitSell = {
+      symbol,
+      qty,
+      side: 'sell',
+      type: 'limit',
+      time_in_force: 'fok',
+      order_class: 'simple',
+      extended_hours: true,
+      limit_price: (sellBasis * 1.0025).toFixed(2),
+    };
+
+    let sellSuccess = false;
+    let lastErrorMsg = '';
+    let lastStatus = null;
+    for (let attempt = 1; attempt <= 3 && !sellSuccess; attempt++) {
+      const ts = new Date().toISOString();
+      console.log(
+        `[${ts}] ⏳ Sell attempt ${attempt} with params: ${JSON.stringify(limitSell)}`
+      );
+      try {
+        const sellRes = await fetch(`${ALPACA_BASE_URL}/orders`, {
+          method: 'POST',
+          headers: HEADERS,
+          body: JSON.stringify(limitSell),
+        });
+        const rawBody = await sellRes.text();
+        let sellData;
+        try {
+          sellData = JSON.parse(rawBody);
+        } catch (e) {
+          sellData = rawBody;
+        }
+        if (sellRes.ok) {
+          sellSuccess = true;
+          console.log(
+            `✅ Limit sell placed for ${symbol}: qty=${limitSell.qty} limit=${limitSell.limit_price}`,
+            sellData
+          );
+          showNotification(
+            `✅ Trade Executed: Sell order placed at $${limitSell.limit_price}`
+          );
+        } else {
+          lastStatus = sellRes.status;
+          lastErrorMsg = sellData?.message || JSON.stringify(sellData);
+          console.error(
+            `[${ts}] ❌ Sell attempt ${attempt} failed (status ${sellRes.status}):`,
+            sellData,
+            JSON.stringify(limitSell),
+            Array.from(sellRes.headers.entries())
+          );
+          if (attempt < 3) {
+            await sleep(5000);
+          }
+        }
+      } catch (sellErr) {
+        lastErrorMsg = sellErr.message;
+        console.error(
+          `[${ts}] ❌ Sell error on attempt ${attempt}:`,
+          sellErr,
+          JSON.stringify(limitSell)
+        );
+        if (attempt < 3) {
+          await sleep(5000);
+        }
+      }
+    }
+
+    if (!sellSuccess) {
+      const statusPart = lastStatus ? `Status: ${lastStatus}\n` : '';
+      const msgPart = lastErrorMsg ? `Error: ${lastErrorMsg}` : 'Unknown error';
+      const match = /requested:\s*([0-9.]+),\s*available:\s*([0-9.]+)/i.exec(
+        lastErrorMsg || ''
+      );
+      const qtyPart = match
+        ? `Requested: ${match[1]}\nAvailable: ${match[2]}\n`
+        : '';
+      showNotification(
+        `❌ Sell Failed: ${statusPart}${msgPart}\n${qtyPart}Unable to place sell order after retries`
+      );
+    }
+  };
+
   const placeOrder = async (symbol, ccSymbol = symbol, isManual = false) => {
     if (!autoTrade && !isManual) return;
     if (!isManual && insufficientFundsThisCycle) {
@@ -251,117 +351,11 @@ export default function App() {
       // Wait a short period to ensure the position settles before selling
       await sleep(5000);
 
-      // Always refetch the position before selling, retrying up to 3 times
-      let positionQty = parseFloat(filledOrder.filled_qty);
-      for (let posAttempt = 1; posAttempt <= 3; posAttempt++) {
-        try {
-          const posRes = await fetch(`${ALPACA_BASE_URL}/positions/${symbol}`, {
-            headers: HEADERS,
-          });
-          if (posRes.ok) {
-            const posData = await posRes.json();
-            const fullQty = parseFloat(posData.qty);
-            if (!isNaN(fullQty)) {
-              positionQty = parseFloat(fullQty.toFixed(6));
-              break;
-            }
-          } else {
-            console.warn(
-              `❌ Position fetch failed (status ${posRes.status}), attempt ${posAttempt}`
-            );
-          }
-        } catch (posErr) {
-          console.error(
-            `❌ Position fetch error on attempt ${posAttempt}:`,
-            posErr
-          );
-        }
-        if (posAttempt < 3) {
-          await sleep(1000);
-        }
-      }
-      // clamp to 6 decimals for crypto precision
-      positionQty = parseFloat(positionQty.toFixed(6));
-
-      const limitSell = {
-        symbol,
-        qty: positionQty,
-        side: 'sell',
-        type: 'limit',
-        time_in_force: 'gtc',
-        order_class: 'simple',
-        extended_hours: true,
-        limit_price: (sellBasis * 1.0025).toFixed(2),
-      };
-
-      let sellSuccess = false;
-      let lastErrorMsg = '';
-      let lastStatus = null;
-      for (let attempt = 1; attempt <= 3 && !sellSuccess; attempt++) {
-        const ts = new Date().toISOString();
-        console.log(
-          `[${ts}] ⏳ Sell attempt ${attempt} with params: ${JSON.stringify(limitSell)}`
-        );
-        try {
-          const sellRes = await fetch(`${ALPACA_BASE_URL}/orders`, {
-            method: 'POST',
-            headers: HEADERS,
-            body: JSON.stringify(limitSell),
-          });
-          const rawBody = await sellRes.text();
-          let sellData;
-          try {
-            sellData = JSON.parse(rawBody);
-          } catch (e) {
-            sellData = rawBody;
-          }
-          if (sellRes.ok) {
-            sellSuccess = true;
-            console.log(
-              `✅ Limit sell placed for ${symbol}: qty=${limitSell.qty} limit=${limitSell.limit_price}`,
-              sellData
-            );
-            showNotification(
-              `✅ Trade Executed: Sell order placed at $${limitSell.limit_price}`
-            );
-          } else {
-            lastStatus = sellRes.status;
-            lastErrorMsg = sellData?.message || JSON.stringify(sellData);
-            console.error(
-              `[${ts}] ❌ Sell attempt ${attempt} failed (status ${sellRes.status}):`,
-              sellData,
-              JSON.stringify(limitSell),
-              Array.from(sellRes.headers.entries())
-            );
-            if (attempt < 3) {
-              await sleep(5000);
-            }
-          }
-        } catch (sellErr) {
-          lastErrorMsg = sellErr.message;
-          console.error(
-            `[${ts}] ❌ Sell error on attempt ${attempt}:`,
-            sellErr,
-            JSON.stringify(limitSell)
-          );
-          if (attempt < 3) {
-            await sleep(5000);
-          }
-        }
-      }
-
-      if (!sellSuccess) {
-        const statusPart = lastStatus ? `Status: ${lastStatus}\n` : '';
-        const msgPart = lastErrorMsg ? `Error: ${lastErrorMsg}` : 'Unknown error';
-        const match = /requested:\s*([0-9.]+),\s*available:\s*([0-9.]+)/i.exec(
-          lastErrorMsg || ''
-        );
-        const qtyPart = match
-          ? `Requested: ${match[1]}\nAvailable: ${match[2]}\n`
-          : '';
-        showNotification(
-          `❌ Sell Failed: ${statusPart}${msgPart}\n${qtyPart}Unable to place sell order after retries`
-        );
+      const info = await getPositionInfo(symbol);
+      const sellQty = info?.qty ?? parseFloat(filledOrder.filled_qty);
+      const basis = info?.basis ?? sellBasis;
+      if (sellQty > 0) {
+        await placeLimitSell(symbol, sellQty, basis);
       }
     } catch (err) {
       console.error('❌ Order error:', err);
@@ -437,6 +431,11 @@ export default function App() {
 
         token.trend = getTrendSymbol(closes);
         token.missingData = token.price == null || closes.length < 20;
+
+        const held = await getPositionInfo(asset.symbol);
+        if (held) {
+          await placeLimitSell(asset.symbol, held.qty, held.basis);
+        }
 
         if (token.entryReady && autoTrade) {
           await placeOrder(asset.symbol, asset.cc);
