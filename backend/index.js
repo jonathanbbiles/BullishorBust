@@ -5,9 +5,9 @@ const { placeMarketBuyThenSell } = require('./trade');
 const app = express();
 app.use(express.json());
 
-const ALPACA_BASE_URL = 'https://paper-api.alpaca.markets/v2';
-const API_KEY = process.env.ALPACA_API_KEY;
-const SECRET_KEY = process.env.ALPACA_SECRET_KEY;
+const ALPACA_BASE_URL = process.env.ALPACA_BASE_URL || 'https://api.alpaca.markets/v2';
+const API_KEY = process.env.ALPACA_API_KEY || 'PK1WV90WBLHKDKI7Y1RL';
+const SECRET_KEY = process.env.ALPACA_SECRET_KEY || 'xg5i1O1AtcMHMkVDegZ3a5Nol1lNTG5xFNeiQNPZ';
 
 // Sequentially place a limit buy order followed by a limit sell once filled
 app.post('/trade', async (req, res) => {

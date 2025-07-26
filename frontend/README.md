@@ -9,8 +9,8 @@ Tokens are flagged **ENTRY READY** when the MACD line is above the signal line. 
 ## Setup
 
 1. `npm install`
-2. Copy `.env.example` to `.env`
-3. Start backend (Node.js Express server)
-4. Run: `npm start` (Expo)
+2. Start backend (Node.js Express server)
+3. Run: `npm start` (Expo)
+   - The app uses built-in live Alpaca credentials which can be overridden by defining `ALPACA_KEY`, `ALPACA_SECRET` and `ALPACA_BASE_URL` in an `.env` file.
 
 The app shows temporary trade messages using a built-in overlay notification.
